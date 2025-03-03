@@ -92,3 +92,21 @@ def test_SSD300_FAT_None():
     """Test SSD300 with FAT-None weights."""
     with pytest.raises(NotImplementedError):
         SSD300(num_classes=2, base_weights=None, head_weights="FAT")
+
+
+def test_SSD300_VOC_FAT():
+    """Test SSD300 with FAT-None weights."""
+    with pytest.raises(NotImplementedError):
+        SSD300(num_classes=21, base_weights="FAT", head_weights="VOC")
+
+
+def test_SSD300_FAT_VOC():
+    """Test SSD300 with FAT-None weights."""
+    with pytest.raises(NotImplementedError):
+        SSD300(num_classes=22, base_weights="VOC", head_weights="FAT")
+
+
+def test_SSD30_None_FAT():
+    """Test SSD300 with FAT-None weights."""
+    with pytest.raises(NotImplementedError):
+        SSD300(num_classes=2, base_weights="FAT", head_weights=None)
