@@ -2,9 +2,6 @@ import os
 import numpy as np
 import cv2
 import pytest
-
-# Import functions from your module.
-# sys.path.append(os.path.abspath(os.path.join(os.getcwd())))
 from paz.backend.from_yolo_dataloader import (
     validate_directories,
     get_image_files,
@@ -12,8 +9,16 @@ from paz.backend.from_yolo_dataloader import (
     get_image_size,
     load_label,
     process_labels,
-    get_data_PAZ_formate,
+    get_data_PAZ_format,
     validate_file_correspondence,
+    get_bases,
+    get_missing_images,
+    get_missing_labels,
+    validate_image_correspondence,
+    validate_label_correspondence,
+    parse_label_line,
+    process_normalized_labels,
+    process_absolute_labels,
 )
 
 
@@ -105,10 +110,10 @@ def test_process_labels(data_loader_dirs):
     np.testing.assert_array_equal(processed, expected)
 
 
-def test_get_data_PAZ_formate(data_loader_dirs):
+def test_get_data_PAZ_format(data_loader_dirs):
     images_dir = data_loader_dirs["images_dir"]
     labels_dir = data_loader_dirs["labels_dir"]
-    data = get_data_PAZ_formate(images_dir, labels_dir, normalize=False)
+    data = get_data_PAZ_format(images_dir, labels_dir, normalize=False)
     # Expect 2 data entries (one per image file)
     assert len(data) == 2
     for entry in data:
@@ -150,5 +155,76 @@ def test_empty_directories(tmp_path):
         get_label_files(str(empty_labels_dir))
 
 
-if __name__ == "__main__":
-    pytest.main([__file__])
+def test_get_bases():
+    file_paths = ["image1.jpg", "dir/image2.png", "document.txt"]
+    expected = ["image1", "dir/image2", "document"]
+    assert get_bases(file_paths) == expected
+
+
+def test_get_missing_images():
+    image_bases = ["image1", "image2"]
+    label_bases = ["image1", "image2", "image3"]
+    missing = get_missing_images(image_bases, label_bases)
+    assert missing == ["image3"]
+
+
+def test_get_missing_labels():
+    image_bases = ["image1", "image2", "image3"]
+    label_bases = ["image1", "image3"]
+    missing = get_missing_labels(image_bases, label_bases)
+    assert missing == ["image2.txt"]
+
+
+def test_validate_image_correspondence_valid():
+    image_bases = ["image1", "image2", "image3"]
+    label_bases = ["image1", "image2", "image3"]
+    validate_image_correspondence(image_bases, label_bases)
+
+
+def test_validate_image_correspondence_invalid():
+    # label_bases contains an extra base not found in image_bases.
+    image_bases = ["image1", "image2"]
+    label_bases = ["image1", "image2", "image3"]
+    with pytest.raises(
+        ValueError,
+        match="The following label files have no corresponding image files",
+    ):
+        validate_image_correspondence(image_bases, label_bases)
+
+
+def test_validate_label_correspondence_valid():
+    image_bases = ["image1", "image2", "image3"]
+    label_bases = ["image1", "image2", "image3"]
+    validate_label_correspondence(image_bases, label_bases)
+
+
+def test_validate_label_correspondence_invalid():
+    image_bases = ["image1", "image2", "image3"]
+    label_bases = ["image1", "image3"]
+    with pytest.raises(
+        ValueError,
+        match="The following image files have no corresponding label files",
+    ):
+        validate_label_correspondence(image_bases, label_bases)
+
+
+def test_parse_label_line():
+    line = "0 0.5 0.5 0.1 0.2"
+    expected = [0.0, 0.5, 0.5, 0.1, 0.2]
+    result = parse_label_line(line)
+    assert result == expected
+
+
+def test_process_normalized_labels():
+    labels = np.array([[0, 0.5, 0.5, 0.2, 0.2], [1, 0.4, 0.4, 0.2, 0.2]])
+    expected = np.array([[0.4, 0.4, 0.6, 0.6, 0], [0.3, 0.3, 0.5, 0.5, 1]])
+    result = process_normalized_labels(labels)
+    np.testing.assert_allclose(result, expected)
+
+
+def test_process_absolute_labels():
+    labels = np.array([[0, 0.5, 0.5, 0.2, 0.2], [1, 0.4, 0.4, 0.2, 0.2]])
+    image_size = (100, 200)  # width=100, height=200
+    expected = np.array([[40, 80, 60, 120, 0], [30, 60, 50, 100, 1]])
+    result = process_absolute_labels(labels, image_size)
+    np.testing.assert_array_equal(result, expected)

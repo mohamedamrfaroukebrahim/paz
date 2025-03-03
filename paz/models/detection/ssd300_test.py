@@ -92,7 +92,3 @@ def test_SSD300_FAT_None():
     """Test SSD300 with FAT-None weights."""
     with pytest.raises(NotImplementedError):
         SSD300(num_classes=2, base_weights=None, head_weights="FAT")
-
-
-if __name__ == "__main__":
-    pytest.main([__file__])

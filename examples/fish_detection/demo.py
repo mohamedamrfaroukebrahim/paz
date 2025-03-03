@@ -4,13 +4,14 @@ from Deepfish_data_processing import (
     process_class_data,
     get_file,
 )
-from paz.backend.from_yolo_dataloader import get_data_PAZ_formate
+from paz.backend.from_yolo_dataloader import get_data_PAZ_format
 
 
 if __name__ == "__main__":
     downloaded_file_local_path = get_file(
         file_url="https://drive.google.com/file/d/10Pr4lLeSGTfkjA40ReGSC8H3a9onfMZ0/view",
         output_filename="fish_dataset_.zip",
+        output_dir="./Data/raw",
     )
     extract_compresed_file(
         downloaded_file_local_path,
@@ -26,7 +27,7 @@ if __name__ == "__main__":
     images_directory_full_path = r"./Data/processed/yolo_dataset/images/train"
     labels_directory_full_path = r"./Data/processed/yolo_dataset/labels/train"
 
-    data = get_data_PAZ_formate(
+    data = get_data_PAZ_format(
         images_directory_full_path, labels_directory_full_path, normalize=False
     )
     print(f"Number of data entries: {len(data)}")

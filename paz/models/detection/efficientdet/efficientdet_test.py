@@ -1,13 +1,9 @@
 import pytest
-from keras.layers import Input
-import pytest
 from keras.layers import Input, Flatten
 from keras.models import Model
 import numpy as np
 from keras.utils import get_file
-import pytest
-from keras.models import Model
-import numpy as np
+
 
 from paz.models.detection.efficientdet.efficientdet_blocks import (
     build_detector_head,
@@ -41,7 +37,10 @@ from paz.models.detection.efficientdet.efficientnet import (
     MB_block,
 )
 
-from paz.models.detection.efficientdet.layers import GetDropConnect, FuseFeature
+from paz.models.detection.efficientdet.layers import (
+    GetDropConnect,
+    FuseFeature,
+)
 
 
 @pytest.fixture
@@ -56,7 +55,9 @@ def model_output_name():
 
 @pytest.fixture
 def model_weight_path():
-    WEIGHT_PATH = "https://github.com/oarriaga/altamira-data/releases/download/v0.16/"
+    WEIGHT_PATH = (
+        "https://github.com/oarriaga/altamira-data/releases/download/v0.16/"
+    )
     return WEIGHT_PATH
 
 
@@ -166,7 +167,11 @@ def test_bifpn():
     """Test the BiFPN function."""
     middles = [Input(shape=(16 // (2**i), 16 // (2**i), 64)) for i in range(5)]
     skips = [
-        None if i == 0 or i == 4 else Input(shape=(16 // (2**i), 16 // (2**i), 64))
+        (
+            None
+            if i == 0 or i == 4
+            else Input(shape=(16 // (2**i), 16 // (2**i), 64))
+        )
         for i in range(5)
     ]
     new_middles, _ = BiFPN(middles, skips, num_filters=64, fusion="fast")
@@ -234,8 +239,22 @@ def count_params(weights):
         "output_shape"
     ),
     [
-        (EFFICIENTDETD0, "efficientdet-d0", 3880067, 47136, (512, 512, 3), (49104, 94)),
-        (EFFICIENTDETD1, "efficientdet-d1", 6625898, 71456, (640, 640, 3), (76725, 94)),
+        (
+            EFFICIENTDETD0,
+            "efficientdet-d0",
+            3880067,
+            47136,
+            (512, 512, 3),
+            (49104, 94),
+        ),
+        (
+            EFFICIENTDETD1,
+            "efficientdet-d1",
+            6625898,
+            71456,
+            (640, 640, 3),
+            (76725, 94),
+        ),
         (
             EFFICIENTDETD2,
             "efficientdet-d2",
@@ -298,8 +317,12 @@ def test_efficientdet_architecture(
     trainable_count = count_params(implemented_model.trainable_weights)
     non_trainable_count = count_params(implemented_model.non_trainable_weights)
     assert implemented_model.name == model_name, "Model name incorrect"
-    assert implemented_model.input_shape[1:] == input_shape, "Incorrect input shape"
-    assert implemented_model.output_shape[1:] == output_shape, "Incorrect output shape"
+    assert (
+        implemented_model.input_shape[1:] == input_shape
+    ), "Incorrect input shape"
+    assert (
+        implemented_model.output_shape[1:] == output_shape
+    ), "Incorrect output shape"
     assert (
         trainable_count == trainable_parameters
     ), "Incorrect trainable parameters count"
@@ -312,7 +335,10 @@ def test_conv_block():
     """Test the conv_block function."""
     input_tensor = Input(shape=(32, 32, 3))
     output_tensor = conv_block(
-        input_tensor, intro_filters=[32], width_coefficient=1.0, depth_divisor=8
+        input_tensor,
+        intro_filters=[32],
+        width_coefficient=1.0,
+        depth_divisor=8,
     )
     model = Model(inputs=input_tensor, outputs=output_tensor)
     # Expect spatial dimensions to be reduced (e.g., downsampled by 2)
@@ -439,7 +465,9 @@ def test_apply_drop_connect():
         (1536, (1.8, 2.6, 0.5), (768, 768, 32)),
     ],
 )
-def test_efficientnet_bottleneck_block(image_size, scaling_coefficients, output_shape):
+def test_efficientnet_bottleneck_block(
+    image_size, scaling_coefficients, output_shape
+):
     shape = (image_size, image_size, 3)
     image = Input(shape=shape, name="image")
     branch_tensors = EFFICIENTNET(image, scaling_coefficients)
@@ -492,7 +520,9 @@ def test_drop_connect(input_shape, dtype, target_shape, is_training):
 def test_EfficientNet_SE_block(image_size, scaling_coefficients, output_shape):
     shape = (image_size, image_size, 3)
     image = Input(shape=shape, name="image")
-    branch_tensors = EFFICIENTNET(image, scaling_coefficients, excite_ratio=0.8)
+    branch_tensors = EFFICIENTNET(
+        image, scaling_coefficients, excite_ratio=0.8
+    )
     assert (
         branch_tensors[0].shape == (None,) + output_shape
     ), "SE block output shape mismatch"
@@ -505,11 +535,36 @@ def test_EfficientNet_SE_block(image_size, scaling_coefficients, output_shape):
         (512, (1.0, 1.0, 0.8), (256, 128, 64, 32, 16), (16, 24, 40, 112, 320)),
         (640, (1.0, 1.1, 0.8), (320, 160, 80, 40, 20), (16, 24, 40, 112, 320)),
         (768, (1.1, 1.2, 0.7), (384, 192, 96, 48, 24), (16, 24, 48, 120, 352)),
-        (896, (1.2, 1.4, 0.7), (448, 224, 112, 56, 28), (24, 32, 48, 136, 384)),
-        (1024, (1.4, 1.8, 0.6), (512, 256, 128, 64, 32), (24, 32, 56, 160, 448)),
-        (1280, (1.6, 2.2, 0.6), (640, 320, 160, 80, 40), (24, 40, 64, 176, 512)),
-        (1280, (1.8, 2.6, 0.5), (640, 320, 160, 80, 40), (32, 40, 72, 200, 576)),
-        (1536, (1.8, 2.6, 0.5), (768, 384, 192, 96, 48), (32, 40, 72, 200, 576)),
+        (
+            896,
+            (1.2, 1.4, 0.7),
+            (448, 224, 112, 56, 28),
+            (24, 32, 48, 136, 384),
+        ),
+        (
+            1024,
+            (1.4, 1.8, 0.6),
+            (512, 256, 128, 64, 32),
+            (24, 32, 56, 160, 448),
+        ),
+        (
+            1280,
+            (1.6, 2.2, 0.6),
+            (640, 320, 160, 80, 40),
+            (24, 40, 64, 176, 512),
+        ),
+        (
+            1280,
+            (1.8, 2.6, 0.5),
+            (640, 320, 160, 80, 40),
+            (32, 40, 72, 200, 576),
+        ),
+        (
+            1536,
+            (1.8, 2.6, 0.5),
+            (768, 384, 192, 96, 48),
+            (32, 40, 72, 200, 576),
+        ),
     ],
 )
 def test_EfficientNet_branch(
@@ -539,8 +594,24 @@ def test_EfficientNet_branch(
         "output_shapes"
     ),
     [
-        (512, (1.0, 1.0, 0.8), 64, 3, "fast", 3, (774144, 193536, 48384, 12096, 3024)),
-        (640, (1.0, 1.1, 0.8), 88, 4, "fast", 3, (1209600, 302400, 75600, 18900, 4725)),
+        (
+            512,
+            (1.0, 1.0, 0.8),
+            64,
+            3,
+            "fast",
+            3,
+            (774144, 193536, 48384, 12096, 3024),
+        ),
+        (
+            640,
+            (1.0, 1.1, 0.8),
+            88,
+            4,
+            "fast",
+            3,
+            (1209600, 302400, 75600, 18900, 4725),
+        ),
         (
             768,
             (1.1, 1.2, 0.7),
@@ -609,7 +680,9 @@ def test_EfficientDet_ClassNet(
     shape = (input_shape, input_shape, 3)
     image = Input(shape=shape, name="image")
     branch_tensors = EFFICIENTNET(image, scaling_coefficients)
-    branches, middles, skips = EfficientNet_to_BiFPN(branch_tensors, FPN_num_filters)
+    branches, middles, skips = EfficientNet_to_BiFPN(
+        branch_tensors, FPN_num_filters
+    )
     for _ in range(FPN_cell_repeats):
         middles, skips = BiFPN(middles, skips, FPN_num_filters, fusion)
     aspect_ratios = [1.0, 2.0, 0.5]
@@ -617,12 +690,21 @@ def test_EfficientDet_ClassNet(
     num_classes = 21
     survival_rate = None
     num_anchors = len(aspect_ratios) * num_scales
-    args = (middles, num_anchors, FPN_num_filters, box_class_repeats, survival_rate)
+    args = (
+        middles,
+        num_anchors,
+        FPN_num_filters,
+        box_class_repeats,
+        survival_rate,
+    )
     _, class_outputs = ClassNet(*args, num_classes)
     class_outputs = [Flatten()(class_output) for class_output in class_outputs]
     assert len(class_outputs) == 5, "Class outputs length fail"
     for class_output, output_shape in zip(class_outputs, output_shapes):
-        assert class_output.shape == (None, output_shape), "Class outputs shape fail"
+        assert class_output.shape == (
+            None,
+            output_shape,
+        ), "Class outputs shape fail"
     del branch_tensors, branches, middles, skips, class_outputs
 
 
@@ -633,11 +715,51 @@ def test_EfficientDet_ClassNet(
         "output_shapes"
     ),
     [
-        (512, (1.0, 1.0, 0.8), 64, 3, "fast", 3, (147456, 36864, 9216, 2304, 576)),
-        (640, (1.0, 1.1, 0.8), 88, 4, "fast", 3, (230400, 57600, 14400, 3600, 900)),
-        (768, (1.1, 1.2, 0.7), 112, 5, "fast", 3, (331776, 82944, 20736, 5184, 1296)),
-        (896, (1.2, 1.4, 0.7), 160, 6, "fast", 4, (451584, 112896, 28224, 7056, 1764)),
-        (1024, (1.4, 1.8, 0.6), 224, 7, "fast", 4, (589824, 147456, 36864, 9216, 2304)),
+        (
+            512,
+            (1.0, 1.0, 0.8),
+            64,
+            3,
+            "fast",
+            3,
+            (147456, 36864, 9216, 2304, 576),
+        ),
+        (
+            640,
+            (1.0, 1.1, 0.8),
+            88,
+            4,
+            "fast",
+            3,
+            (230400, 57600, 14400, 3600, 900),
+        ),
+        (
+            768,
+            (1.1, 1.2, 0.7),
+            112,
+            5,
+            "fast",
+            3,
+            (331776, 82944, 20736, 5184, 1296),
+        ),
+        (
+            896,
+            (1.2, 1.4, 0.7),
+            160,
+            6,
+            "fast",
+            4,
+            (451584, 112896, 28224, 7056, 1764),
+        ),
+        (
+            1024,
+            (1.4, 1.8, 0.6),
+            224,
+            7,
+            "fast",
+            4,
+            (589824, 147456, 36864, 9216, 2304),
+        ),
         (
             1280,
             (1.6, 2.2, 0.6),
@@ -647,7 +769,15 @@ def test_EfficientDet_ClassNet(
             4,
             (921600, 230400, 57600, 14400, 3600),
         ),
-        (1280, (1.8, 2.6, 0.5), 384, 8, "sum", 5, (921600, 230400, 57600, 14400, 3600)),
+        (
+            1280,
+            (1.8, 2.6, 0.5),
+            384,
+            8,
+            "sum",
+            5,
+            (921600, 230400, 57600, 14400, 3600),
+        ),
         (
             1536,
             (1.8, 2.6, 0.5),
@@ -671,7 +801,9 @@ def test_EfficientDet_BoxesNet(
     shape = (input_shape, input_shape, 3)
     image = Input(shape=shape, name="image")
     branch_tensors = EFFICIENTNET(image, scaling_coefficients)
-    branches, middles, skips = EfficientNet_to_BiFPN(branch_tensors, FPN_num_filters)
+    branches, middles, skips = EfficientNet_to_BiFPN(
+        branch_tensors, FPN_num_filters
+    )
     for _ in range(FPN_cell_repeats):
         middles, skips = BiFPN(middles, skips, FPN_num_filters, fusion)
     aspect_ratios = [1.0, 2.0, 0.5]
@@ -679,12 +811,21 @@ def test_EfficientDet_BoxesNet(
     num_dims = 4
     survival_rate = None
     num_anchors = len(aspect_ratios) * num_scales
-    args = (middles, num_anchors, FPN_num_filters, box_class_repeats, survival_rate)
+    args = (
+        middles,
+        num_anchors,
+        FPN_num_filters,
+        box_class_repeats,
+        survival_rate,
+    )
     _, boxes_outputs = BoxesNet(*args, num_dims)
     boxes_outputs = [Flatten()(boxes_output) for boxes_output in boxes_outputs]
     assert len(boxes_outputs) == 5
     for boxes_output, output_shape in zip(boxes_outputs, output_shapes):
-        assert boxes_output.shape == (None, output_shape), "Boxes outputs shape fail"
+        assert boxes_output.shape == (
+            None,
+            output_shape,
+        ), "Boxes outputs shape fail"
     del branch_tensors, branches, middles, skips, boxes_outputs
 
 
@@ -701,7 +842,9 @@ def test_EfficientDet_BoxesNet(
         (1536, (1.8, 2.6, 0.5), (1, 768, 768, 56)),
     ],
 )
-def test_EfficientNet_conv_block(image_size, scaling_coefficients, output_shape):
+def test_EfficientNet_conv_block(
+    image_size, scaling_coefficients, output_shape
+):
     images = get_test_images(image_size, 1)
     efficientnet_hyperparameters = get_EfficientNet_hyperparameters()
     intro_filters = efficientnet_hyperparameters["intro_filters"]
@@ -805,7 +948,9 @@ def test_EfficientNet_conv_block(image_size, scaling_coefficients, output_shape)
         ),
     ],
 )
-def test_EfficientNet_MBconv_blocks(image_size, scaling_coefficients, output_shape):
+def test_EfficientNet_MBconv_blocks(
+    image_size, scaling_coefficients, output_shape
+):
     images = get_test_images(image_size, 1)
     efficientnet_hyperparameters = get_EfficientNet_hyperparameters()
     intro_filters = efficientnet_hyperparameters["intro_filters"]
@@ -858,7 +1003,13 @@ def test_EfficientNet_MBconv_blocks(image_size, scaling_coefficients, output_sha
             88,
             4,
             "fast",
-            [(80, 80, 88), (40, 40, 88), (20, 20, 88), (10, 10, 88), (5, 5, 88)],
+            [
+                (80, 80, 88),
+                (40, 40, 88),
+                (20, 20, 88),
+                (10, 10, 88),
+                (5, 5, 88),
+            ],
         ),
         (
             768,
@@ -866,7 +1017,13 @@ def test_EfficientNet_MBconv_blocks(image_size, scaling_coefficients, output_sha
             112,
             5,
             "fast",
-            [(96, 96, 112), (48, 48, 112), (24, 24, 112), (12, 12, 112), (6, 6, 112)],
+            [
+                (96, 96, 112),
+                (48, 48, 112),
+                (24, 24, 112),
+                (12, 12, 112),
+                (6, 6, 112),
+            ],
         ),
         (
             896,
@@ -874,7 +1031,13 @@ def test_EfficientNet_MBconv_blocks(image_size, scaling_coefficients, output_sha
             160,
             6,
             "fast",
-            [(112, 112, 160), (56, 56, 160), (28, 28, 160), (14, 14, 160), (7, 7, 160)],
+            [
+                (112, 112, 160),
+                (56, 56, 160),
+                (28, 28, 160),
+                (14, 14, 160),
+                (7, 7, 160),
+            ],
         ),
         (
             1024,
@@ -882,7 +1045,13 @@ def test_EfficientNet_MBconv_blocks(image_size, scaling_coefficients, output_sha
             224,
             7,
             "fast",
-            [(128, 128, 224), (64, 64, 224), (32, 32, 224), (16, 16, 224), (8, 8, 224)],
+            [
+                (128, 128, 224),
+                (64, 64, 224),
+                (32, 32, 224),
+                (16, 16, 224),
+                (8, 8, 224),
+            ],
         ),
         (
             1280,
@@ -939,7 +1108,9 @@ def test_EfficientDet_BiFPN(
     shape = (input_shape, input_shape, 3)
     image = Input(shape=shape, name="image")
     branch_tensors = EFFICIENTNET(image, scaling_coefficients)
-    branches, middles, skips = EfficientNet_to_BiFPN(branch_tensors, FPN_num_filters)
+    branches, middles, skips = EfficientNet_to_BiFPN(
+        branch_tensors, FPN_num_filters
+    )
     for _ in range(FPN_cell_repeats):
         middles, skips = BiFPN(middles, skips, FPN_num_filters, fusion)
     assert len(middles) == 5, "Incorrect middle features count"
@@ -971,7 +1142,9 @@ def test_fuse_feature():
     layer_fast = FuseFeature(fusion="fast")
     input_shape = [(1, 4, 4, 3)] * 3
     layer_fast.build(input_shape)
-    input_tensors = [np.random.rand(1, 4, 4, 3).astype("float32") for _ in range(3)]
+    input_tensors = [
+        np.random.rand(1, 4, 4, 3).astype("float32") for _ in range(3)
+    ]
     output_fast = layer_fast.call(input_tensors, fusion="fast")
     assert output_fast.shape == (1, 4, 4, 3)
 
@@ -1032,13 +1205,17 @@ def test_load_weights(model, model_name, model_weight_path):
         base_weights, head_weights, num_classes
     ):
         detector = model(
-            num_classes=num_class, base_weights=base_weight, head_weights=head_weight
+            num_classes=num_class,
+            base_weights=base_weight,
+            head_weights=head_weight,
         )
         model_filename = "-".join(
             [model_name, base_weight, str(head_weight) + "_weights.hdf5"]
         )
         weights_path = get_file(
-            model_filename, WEIGHT_PATH + model_filename, cache_subdir="paz/models"
+            model_filename,
+            WEIGHT_PATH + model_filename,
+            cache_subdir="paz/models",
         )
         detector.load_weights(weights_path)
         del detector
@@ -1080,9 +1257,7 @@ def test_prior_boxes(model, aspect_ratios, num_boxes):
     assert measured_aspect_ratios == set(
         aspect_ratios
     ), "Anchor aspect ratios not as expected"
-    assert prior_boxes.shape[0] == num_boxes, "Incorrect number of anchor boxes"
+    assert (
+        prior_boxes.shape[0] == num_boxes
+    ), "Incorrect number of anchor boxes"
     del model
-
-
-if __name__ == "__main__":
-    pytest.main([__file__])

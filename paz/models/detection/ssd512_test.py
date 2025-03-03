@@ -74,7 +74,9 @@ def test_SSD512_OIV6Hand_COCO():
 def test_SSD512_YCBVideo_OIV6Hand():
     """Test SSD512 with YCBVideo-OIV6Hand weights."""
     with pytest.raises(NotImplementedError):
-        SSD512(num_classes=22, base_weights="OIV6Hand", head_weights="YCBVideo")
+        SSD512(
+            num_classes=22, base_weights="OIV6Hand", head_weights="YCBVideo"
+        )
 
 
 def test_SSD512_None_OIV6Hand():
@@ -87,7 +89,3 @@ def test_SSD512_COCO_OIV6Hand():
     """Test SSD512 with None-OIV6Hand weights."""
     with pytest.raises(NotImplementedError):
         SSD512(num_classes=2, base_weights="OIV6Hand", head_weights="COCO")
-
-
-if __name__ == "__main__":
-    pytest.main([__file__])

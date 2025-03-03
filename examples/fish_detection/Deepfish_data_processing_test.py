@@ -1,6 +1,7 @@
 import os
 import zipfile
 import pytest
+import tempfile
 
 # Import functions from your module.
 from examples.fish_detection.Deepfish_data_processing import (
@@ -13,6 +14,13 @@ from examples.fish_detection.Deepfish_data_processing import (
     process_class_folders,
     process_negative_samples,
     process_class_data,
+    is_valid_url,
+    make_output_dir,
+    download_from_google_drive,
+    download_from_regular_url,
+    get_image_files,
+    get_file_paths,
+    copy_label_file,
 )
 
 
@@ -315,5 +323,191 @@ def test_extract_compressed_file(tmp_path):
     assert extracted_file_path.read_text() == inner_file_content
 
 
-if __name__ == "__main__":
-    pytest.main([__file__])
+# For download_from_google_drive, we need to override get_gdrive_file_id and gdown.download.
+def fake_get_gdrive_file_id(file_url):
+    # Return a dummy file ID (the function under test will construct a download URL)
+    return "dummy_id"
+
+
+def fake_gdown_download(url, output_path, quiet):
+    # Simulate a successful download by writing dummy content to the output file.
+    with open(output_path, "w") as f:
+        f.write("dummy content")
+
+
+def fake_gdown_download_fail(url, output_path, quiet):
+    # Simulate a download failure.
+    raise Exception("Download failed")
+
+
+# For download_from_regular_url, we monkeypatch keras.utils.get_file.
+def fake_get_file(fname, origin, cache_dir):
+    # Simulate a successful download by creating a file with dummy content.
+    if cache_dir is None:
+        cache_dir = tempfile.gettempdir()
+    file_path = os.path.join(cache_dir, fname)
+    with open(file_path, "w") as f:
+        f.write("dummy content")
+    return file_path
+
+
+def fake_get_file_fail(fname, origin, cache_dir):
+    # Simulate a download failure.
+    raise Exception("Download failed")
+
+
+# --- Test Functions ---
+
+
+def test_is_valid_url():
+    # Valid URL
+    valid_url = "https://www.example.com"
+    assert is_valid_url(valid_url) is True
+
+    # Invalid URL (missing scheme)
+    invalid_url = "www.example.com"
+    assert is_valid_url(invalid_url) is False
+
+    # Empty string should be invalid
+    empty_url = ""
+    assert is_valid_url(empty_url) is False
+
+
+def test_make_output_dir():
+    # Use a temporary directory to test directory creation.
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        filename = "test.txt"
+        output_path = make_output_dir(filename, output_dir=tmp_dir)
+        # Check that the output directory exists and the output path is as expected.
+        assert os.path.isdir(tmp_dir)
+        assert output_path == os.path.join(tmp_dir, filename)
+        # File is not created yet.
+        assert not os.path.exists(output_path)
+
+
+def test_download_from_google_drive_success(monkeypatch, tmp_path):
+    # Override get_gdrive_file_id and gdown.download with our fake functions.
+    monkeypatch.setattr(
+        "examples.fish_detection.Deepfish_data_processing.get_gdrive_file_id",
+        fake_get_gdrive_file_id,
+    )
+    monkeypatch.setattr(
+        "examples.fish_detection.Deepfish_data_processing.gdown.download",
+        fake_gdown_download,
+    )
+
+    # Create a temporary file path for the download.
+    output_file = tmp_path / "downloaded_file.txt"
+    output_file_path = str(output_file)
+
+    file_url = "https://drive.google.com/file/d/dummy_id/view?usp=sharing"
+    result = download_from_google_drive(file_url, output_file_path)
+    assert result == output_file_path
+
+    # Verify the dummy content was written.
+    with open(output_file_path, "r") as f:
+        content = f.read()
+    assert content == "dummy content"
+
+
+def test_download_from_google_drive_failure(monkeypatch, tmp_path):
+    # Override to simulate a download failure.
+    monkeypatch.setattr(
+        "examples.fish_detection.Deepfish_data_processing.get_gdrive_file_id",
+        fake_get_gdrive_file_id,
+    )
+    monkeypatch.setattr(
+        "examples.fish_detection.Deepfish_data_processing.gdown.download",
+        fake_gdown_download_fail,
+    )
+
+    output_file = tmp_path / "downloaded_file.txt"
+    output_file_path = str(output_file)
+    file_url = "https://drive.google.com/file/d/dummy_id/view?usp=sharing"
+    with pytest.raises(
+        RuntimeError, match="Failed to download from Google Drive"
+    ):
+        download_from_google_drive(file_url, output_file_path)
+
+
+def test_download_from_regular_url_success(monkeypatch, tmp_path):
+    # Override keras.utils.get_file to simulate a successful download.
+    import keras.utils
+
+    monkeypatch.setattr(keras.utils, "get_file", fake_get_file)
+
+    output_filename = "downloaded_file.txt"
+    cache_dir = str(tmp_path)
+    file_url = "https://example.com/file.txt"
+    result = download_from_regular_url(
+        file_url, output_filename, output_dir=cache_dir
+    )
+    expected_path = os.path.join(cache_dir, output_filename)
+    assert result == expected_path
+
+    # Verify the file content.
+    with open(expected_path, "r") as f:
+        content = f.read()
+    assert content == "dummy content"
+
+
+def test_download_from_regular_url_failure(monkeypatch, tmp_path):
+    import keras.utils
+
+    monkeypatch.setattr(keras.utils, "get_file", fake_get_file_fail)
+
+    output_filename = "downloaded_file.txt"
+    cache_dir = str(tmp_path)
+    file_url = "https://example.com/file.txt"
+    with pytest.raises(RuntimeError, match="Failed to download file from URL"):
+        download_from_regular_url(
+            file_url, output_filename, output_dir=cache_dir
+        )
+
+
+def test_get_image_files(tmp_path):
+    # Create some dummy image files and non-image files.
+    image_names = ["image1.jpg", "image2.png", "IMAGE3.JPEG"]
+    non_image_names = ["document.pdf", "notes.txt", "script.py"]
+    for name in image_names + non_image_names:
+        (tmp_path / name).write_text("dummy content")
+
+    result = get_image_files(str(tmp_path))
+    # Compare sets since order is not guaranteed.
+    assert set(result) == set(image_names)
+
+
+def test_get_file_paths():
+    src_folder = "/src"
+    dst_img_folder = "/dst/images"
+    dst_label_folder = "/dst/labels"
+    img_file = "example.jpg"
+    src_img, dst_img, src_label, dst_label = get_file_paths(
+        src_folder, dst_img_folder, dst_label_folder, img_file
+    )
+    # Verify that the paths are constructed correctly.
+    assert src_img == os.path.join(src_folder, img_file)
+    assert dst_img == os.path.join(dst_img_folder, img_file)
+    expected_label = "example.txt"
+    assert src_label == os.path.join(src_folder, expected_label)
+    assert dst_label == os.path.join(dst_label_folder, expected_label)
+
+
+def test_copy_label_file(tmp_path, capsys):
+    # Create a dummy label file.
+    label_file = tmp_path / "label.txt"
+    label_file.write_text("label content")
+    dst_label_file = tmp_path / "copied_label.txt"
+
+    # Test when the label file exists.
+    copy_label_file(str(label_file), str(dst_label_file), "image.jpg")
+    assert os.path.exists(dst_label_file)
+    with open(dst_label_file, "r") as f:
+        content = f.read()
+    assert content == "label content"
+
+    # Test when the label file does not exist.
+    non_existent_label = tmp_path / "nonexistent.txt"
+    copy_label_file(str(non_existent_label), str(dst_label_file), "image2.jpg")
+    captured = capsys.readouterr().out
+    assert "Warning: No label found for image image2.jpg" in captured
