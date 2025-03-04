@@ -196,7 +196,3 @@ def test_concatenation(common_vars):
     # Check if the last dimension matches the sum of regressions and classes
     expected_last_dim = num_regressions + num_classes
     assert output.shape[-1] == expected_last_dim
-
-
-if __name__ == "__main__":
-    pytest.main([__file__])

@@ -37,7 +37,9 @@ def test_normalization_and_scaling(common_params):
     x = np.random.rand(1, *input_shape).astype(np.float32)
 
     # Compute the L2 norm manually
-    l2_norm = np.sqrt(np.sum(x**2, axis=axis, keepdims=True) + np.finfo(np.float32).eps)
+    l2_norm = np.sqrt(
+        np.sum(x**2, axis=axis, keepdims=True) + np.finfo(np.float32).eps
+    )
     normalized_x = x / l2_norm
     expected_output = scale * normalized_x
 
@@ -66,7 +68,3 @@ def test_output_shape(common_params):
 
     # Check if the output shape matches the input shape
     assert output_shape == (1, *input_shape)
-
-
-if __name__ == "__main__":
-    pytest.main([__file__])

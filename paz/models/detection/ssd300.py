@@ -8,7 +8,9 @@ from .utils import create_multibox_head
 from .utils import create_prior_boxes
 
 
-WEIGHT_PATH = "https://github.com/oarriaga/altamira-data/releases/download/v0.2/"
+WEIGHT_PATH = (
+    "https://github.com/oarriaga/altamira-data/releases/download/v0.2/"
+)
 
 
 def SSD300(
@@ -53,6 +55,15 @@ def SSD300(
         raise NotImplementedError("Invalid `base_weights` with head_weights")
 
     if (base_weights is None) and (head_weights is not None):
+        raise NotImplementedError("Invalid `base_weights` with head_weights")
+
+    if (base_weights == "FAT") and (head_weights == "VOC"):
+        raise NotImplementedError("Invalid `base_weights` with head_weights")
+
+    if (base_weights == "VOC") and (head_weights == "FAT"):
+        raise NotImplementedError("Invalid `base_weights` with head_weights")
+
+    if (base_weights == "FAT") and (head_weights is None):
         raise NotImplementedError("Invalid `base_weights` with head_weights")
 
     if (num_classes != 21) and (head_weights == "VOC"):
@@ -107,7 +118,9 @@ def SSD300(
         trainable=trainable_base,
         name="conv2_2",
     )(conv2_1)
-    pool2 = MaxPooling2D(pool_size=(2, 2), strides=(2, 2), padding="same")(conv2_2)
+    pool2 = MaxPooling2D(pool_size=(2, 2), strides=(2, 2), padding="same")(
+        conv2_2
+    )
 
     # Block 3 -----------------------------------------------------------------
     conv3_1 = Conv2D(
@@ -137,7 +150,9 @@ def SSD300(
         trainable=trainable_base,
         name="conv3_3",
     )(conv3_2)
-    pool3 = MaxPooling2D(pool_size=(2, 2), strides=(2, 2), padding="same")(conv3_3)
+    pool3 = MaxPooling2D(pool_size=(2, 2), strides=(2, 2), padding="same")(
+        conv3_3
+    )
 
     # Block 4 -----------------------------------------------------------------
     conv4_1 = Conv2D(
@@ -168,7 +183,9 @@ def SSD300(
         name="conv4_3",
     )(conv4_2)
     conv4_3_norm = Conv2DNormalization(20, name="branch_1")(conv4_3)
-    pool4 = MaxPooling2D(pool_size=(2, 2), strides=(2, 2), padding="same")(conv4_3)
+    pool4 = MaxPooling2D(pool_size=(2, 2), strides=(2, 2), padding="same")(
+        conv4_3
+    )
 
     # Block 5 -----------------------------------------------------------------
     conv5_1 = Conv2D(
@@ -198,7 +215,9 @@ def SSD300(
         trainable=trainable_base,
         name="conv5_3",
     )(conv5_2)
-    pool5 = MaxPooling2D(pool_size=(3, 3), strides=(1, 1), padding="same")(conv5_3)
+    pool5 = MaxPooling2D(pool_size=(3, 3), strides=(1, 1), padding="same")(
+        conv5_3
+    )
 
     # Dense 6/7 --------------------------------------------------------------
     pool5z = ZeroPadding2D(padding=(6, 6))(pool5)
@@ -226,7 +245,11 @@ def SSD300(
     # EXTRA layers in SSD -----------------------------------------------------
     # Block 6 -----------------------------------------------------------------
     conv6_1 = Conv2D(
-        256, (1, 1), padding="same", activation="relu", kernel_regularizer=l2(l2_loss)
+        256,
+        (1, 1),
+        padding="same",
+        activation="relu",
+        kernel_regularizer=l2(l2_loss),
     )(fc7)
     conv6_1z = ZeroPadding2D()(conv6_1)
     conv6_2 = Conv2D(
@@ -241,7 +264,11 @@ def SSD300(
 
     # Block 7 -----------------------------------------------------------------
     conv7_1 = Conv2D(
-        128, (1, 1), padding="same", activation="relu", kernel_regularizer=l2(l2_loss)
+        128,
+        (1, 1),
+        padding="same",
+        activation="relu",
+        kernel_regularizer=l2(l2_loss),
     )(conv6_2)
     conv7_1z = ZeroPadding2D()(conv7_1)
     conv7_2 = Conv2D(
@@ -256,7 +283,11 @@ def SSD300(
 
     # Block 8 -----------------------------------------------------------------
     conv8_1 = Conv2D(
-        128, (1, 1), padding="same", activation="relu", kernel_regularizer=l2(l2_loss)
+        128,
+        (1, 1),
+        padding="same",
+        activation="relu",
+        kernel_regularizer=l2(l2_loss),
     )(conv7_2)
     conv8_2 = Conv2D(
         256,
@@ -270,7 +301,11 @@ def SSD300(
 
     # Block 9 -----------------------------------------------------------------
     conv9_1 = Conv2D(
-        128, (1, 1), padding="same", activation="relu", kernel_regularizer=l2(l2_loss)
+        128,
+        (1, 1),
+        padding="same",
+        activation="relu",
+        kernel_regularizer=l2(l2_loss),
     )(conv8_2)
     conv9_2 = Conv2D(
         256,
@@ -286,7 +321,9 @@ def SSD300(
     if return_base:
         outputs = branch_tensors
     else:
-        outputs = create_multibox_head(branch_tensors, num_classes, num_priors, l2_loss)
+        outputs = create_multibox_head(
+            branch_tensors, num_classes, num_priors, l2_loss
+        )
 
     model = Model(inputs=image, outputs=outputs, name="SSD300")
 
@@ -294,7 +331,9 @@ def SSD300(
         model_filename = ["SSD300", str(base_weights), str(head_weights)]
         model_filename = "_".join(["-".join(model_filename), "weights.hdf5"])
         weights_path = get_file(
-            model_filename, WEIGHT_PATH + model_filename, cache_subdir="paz/models"
+            model_filename,
+            WEIGHT_PATH + model_filename,
+            cache_subdir="paz/models",
         )
         print("Loading %s model weights" % weights_path)
         finetunning_model_names = [
