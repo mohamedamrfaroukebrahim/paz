@@ -1,4 +1,4 @@
-from paz.datasets import voc, shapes
+from paz.datasets import voc, shapes, fer
 
 
 def load(name, *args, **kwargs):
@@ -19,11 +19,25 @@ def build_name_to_arg(class_names):
     return dict(zip(class_names, range(len(class_names))))
 
 
+def labels(name):
+    if name in ["VOC2007", "VOC2012"]:
+        class_names = voc.get_class_names()
+    elif name == "SHAPES":
+        class_names = shapes.get_class_names()
+    elif name == "FER":
+        class_names = fer.get_class_names()
+    else:
+        raise ValueError
+    return class_names
+
+
 def class_map(name):
     if name in ["VOC2007", "VOC2012"]:
         class_names = voc.get_class_names()
     elif name == "SHAPES":
         class_names = shapes.get_class_names()
+    elif name == "FER":
+        class_names = fer.get_class_names()
     else:
         raise ValueError
     return build_arg_to_name(class_names)
