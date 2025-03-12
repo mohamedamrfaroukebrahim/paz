@@ -1,24 +1,53 @@
+import os
+
+os.environ["KERAS_BACKEND"] = "jax"
+
 import jax.numpy as jp
+import paz
 from paz.applications import MiniXception
 
 model = MiniXception()
 
 
-def normalize(image):
-    return image / 255.0
-
-
-def rgb_to_gray(image):
-    rgb_weights = jp.array([0.2989, 0.5870, 0.1140], dtype=image.dtype)
-    grayscale = jp.tensordot(image, rgb_weights, axes=(-1, -1))
-    grayscale = jp.expand_dims(grayscale, axis=-1)
-    return grayscale
-
-
-def to_class_name(probabilities, labels):
+def to_labels(probabilities, labels):
     return labels[jp.argmax(probabilities)]
 
 
+def preprocess(image, shape):
+    image = paz.image.resize(image, shape)
+    image = paz.image.normalize(image)
+    image = paz.image.rgb_to_gray(image)
+    image = jp.expand_dims(image, [0, -1])
+    return image
+
+
+def MiniXceptionFER():
+    labels = [
+        "neutral",
+        "happiness",
+        "surprise",
+        "sadness",
+        "anger",
+        "disgust",
+        "fear",
+        "contempt",
+    ]
+    image = paz.Input("image")
+    # TODO fix reusing the same name
+    x = paz.Node(preprocess, (48, 48))(image)
+    scores = paz.Node(
+        MiniXception((48, 48, 1), 7, weights="FER"), name="score"
+    )(x)
+    # TODO *args does not stop :(
+    labels = paz.Node(to_labels, labels, name="labels")(scores)
+    return paz.Model([image], [labels], "MiniXceptionFER")
+
+
+# score = MiniXception((48, 48, 1), 7, weights="FER")
+model = MiniXceptionFER()
+y = model(jp.full((128, 128, 3), 255))
+
+"""
 class MiniXceptionFER(SequentialProcessor):
     def __init__(self):
         super(MiniXceptionFER, self).__init__()
@@ -33,3 +62,4 @@ class MiniXceptionFER(SequentialProcessor):
         self.add(pr.CopyDomain([0], [1]))
         self.add(pr.ControlMap(pr.ToClassName(self.class_names), [0], [0]))
         self.add(pr.WrapOutput(["class_name", "scores"]))
+"""
