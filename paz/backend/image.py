@@ -7,6 +7,11 @@ import paz
 
 
 BILINEAR = cv2.INTER_LINEAR
+B_IMAGENET_MEAN, G_IMAGENET_MEAN, R_IMAGENET_MEAN = 104, 117, 123
+BGR_IMAGENET_MEAN = (B_IMAGENET_MEAN, G_IMAGENET_MEAN, R_IMAGENET_MEAN)
+RGB_IMAGENET_MEAN = (R_IMAGENET_MEAN, G_IMAGENET_MEAN, B_IMAGENET_MEAN)
+B_IMAGENET_STDEV, G_IMAGENET_STDEV, R_IMAGENET_STDEV = 57.3, 57.1, 58.4
+RGB_IMAGENET_STDEV = (R_IMAGENET_STDEV, G_IMAGENET_STDEV, B_IMAGENET_STDEV)
 
 
 def flip_left_right(image):
@@ -70,6 +75,11 @@ def normalize(image):
 
 
 def rgb_to_gray(image):
-    weights = jp.array([0.2989, 0.5870, 0.1140], dtype=image.dtype)
-    gray_image = jp.tensordot(image, weights, axes=(-1, -1))
-    return jp.expand_dims(gray_image, axis=-1)
+    rgb_weights = jp.array([0.2989, 0.5870, 0.1140], dtype=image.dtype)
+    grayscale = jp.tensordot(image, rgb_weights, axes=(-1, -1))
+    grayscale = jp.expand_dims(grayscale, axis=-1)
+    return grayscale
+
+
+def preprocess(image, shape):
+    return normalize(resize(image, shape))
