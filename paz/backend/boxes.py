@@ -201,9 +201,7 @@ def calculate_IoU_with_best_box(x_min, x_max, y_min, y_max, best_idx, areas):
     Intersection_ymax = jp.minimum(y_max, best_ymax)
 
     Intersection_width = jp.maximum(Intersection_xmax - Intersection_xmin, 0.0)
-    Intersection_height = jp.maximum(
-        Intersection_ymax - Intersection_ymin, 0.0
-    )
+    Intersection_height = jp.maximum(Intersection_ymax - Intersection_ymin, 0.0)
     intersection = Intersection_width * Intersection_height
 
     union = areas + areas[best_idx] - intersection
@@ -284,9 +282,7 @@ def apply_non_max_suppression(boxes, scores, iou_thresh=0.45, top_k=200):
     selected_indices = jp.zeros(top_k, dtype=jp.int32)
     init_state = (0, scores, selected_indices)
 
-    step_fn = _nms_iteration_step(
-        x_min, y_min, x_max, y_max, areas, iou_thresh
-    )
+    step_fn = _nms_iteration_step(x_min, y_min, x_max, y_max, areas, iou_thresh)
     condition_fn = _nms_continuation_condition(top_k)
 
     final_state = lax.while_loop(condition_fn, step_fn, init_state)
@@ -298,9 +294,7 @@ def apply_non_max_suppression(boxes, scores, iou_thresh=0.45, top_k=200):
     return selected_indices, num_selected
 
 
-def nms_per_class(
-    box_data, nms_thresh=0.45, confidence_thresh=0.01, top_k=200
-):
+def nms_per_class(box_data, nms_thresh=0.45, confidence_thresh=0.01, top_k=200):
     """
     Applies non-maximum-suppression per class.
 
