@@ -1,3 +1,4 @@
+from functools import partial
 import cv2
 from keras.utils import get_file
 import paz
@@ -32,7 +33,7 @@ def download(label):
     return model.detectMultiScale
 
 
-def HaarCascadeDetector(label, scale, neighbors, class_arg=0):
+def HaarCascadeDetector(label, scale, neighbors, class_arg):
     """Haar cascade detector.
 
     # Arguments
@@ -63,3 +64,8 @@ def HaarCascadeDetector(label, scale, neighbors, class_arg=0):
         boxes = postprocess(boxes)
 
     return call
+
+
+HaarCascadeFaceDetector = paz.partial(
+    HaarCascadeDetector, "frontalface_default"
+)

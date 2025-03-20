@@ -10,5 +10,12 @@ from paz.backend import detection
 from paz.backend.lie import SE3
 from paz.backend.lie import SO3
 from paz.backend.lie import quaternion
-from paz.backend.standard import lock, merge_dicts, cast, to_jax, to_numpy
+from paz.backend.standard import (
+    lock,
+    partial,
+    merge_dicts,
+    cast,
+    to_jax,
+    to_numpy,
+)
 from paz.abstract import Model, Node, Input, Sequential

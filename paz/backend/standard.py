@@ -1,4 +1,4 @@
-from functools import wraps
+from functools import wraps, partial
 
 import numpy as np
 import jax.numpy as jp
