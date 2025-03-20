@@ -8,8 +8,10 @@ def split(boxes):
     return jp.split(boxes, 4, axis=1)
 
 
-def join(x_min, y_min, x_max, y_max):
-    return jp.concatenate([x_min, y_min, x_max, y_max], axis=1)
+def join(coordinate_0, coordinate_1, coordinate_2, coordinate_3):
+    return jp.concatenate(
+        [coordinate_0, coordinate_1, coordinate_2, coordinate_3], axis=1
+    )
 
 
 def to_center_form(boxes):
@@ -30,11 +32,23 @@ def to_center_form(boxes):
 
 
 def to_xywh(boxes):
+    return xyxy_to_xywh(boxes)
+
+
+def xyxy_to_xywh(boxes):
     x_min, y_min = boxes[:, 0:1], boxes[:, 1:2]
     x_max, y_max = boxes[:, 2:3], boxes[:, 3:4]
     W = x_max - x_min
     H = y_max - y_min
-    return jp.concatenate([x_min, y_min, W, H], axis=1)
+    return join(x_min, y_min, W, H)
+
+
+def xywh_to_xyxy(boxes):
+    x_min, y_min, W, H = split(boxes)
+    x_max = x_min + W
+    y_max = y_min + H
+    boxes = join(x_min, y_min, x_max, y_max)
+    return boxes
 
 
 def to_corner_form(boxes):
@@ -328,3 +342,8 @@ def nms_per_class(box_data, nms_thresh=0.45, confidence_thresh=0.01, top_k=200):
         )
         output = output.at[class_arg, :count, :].set(selections)
     return output
+
+
+def append_class(boxes, class_arg):
+    class_args = jp.full((len(boxes), 1), class_arg)
+    return jp.hstack((boxes, class_args))
