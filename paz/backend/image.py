@@ -94,3 +94,8 @@ def RGB_to_GRAY(image):
 
 def preprocess(image, shape):
     return normalize(resize(image, shape))
+
+
+def get_dimensions(image):
+    H, W = image.shape[:2]
+    return H, W
