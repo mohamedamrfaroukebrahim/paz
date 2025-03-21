@@ -77,13 +77,24 @@ def compute_valid_mask(boxes, image_crop_box, min_iou, max_iou):
     iou_condition = (jp.max(overlap) >= min_iou) & (jp.min(overlap) <= max_iou)
     mask_condition = jp.any(mask)
     is_valid_mask = lax.cond(
-        iou_condition & mask_condition, lambda _: True, lambda _: False, operand=None
+        iou_condition & mask_condition,
+        lambda _: True,
+        lambda _: False,
+        operand=None,
     )
     return is_valid_mask, mask
 
 
 def crop_and_adjust_boxes(
-    image, labels, key, max_trials, boxes, crop_box, min_iou, max_iou, final_boxes
+    image,
+    labels,
+    key,
+    max_trials,
+    boxes,
+    crop_box,
+    min_iou,
+    max_iou,
+    final_boxes,
 ):
     """
     Crop the image using the provided crop_box and adjust bounding
@@ -98,14 +109,20 @@ def crop_and_adjust_boxes(
 
     def loop_body_fn(state):
         trials, _, _ = state
-        new_is_valid_mask, new_mask = compute_valid_mask(boxes, crop_box, min_iou, max_iou)
+        new_is_valid_mask, new_mask = compute_valid_mask(
+            boxes, crop_box, min_iou, max_iou
+        )
         return (trials + 1, new_is_valid_mask, new_mask)
 
-    final_state = lax.while_loop(loop_condition_fn, loop_body_fn, (trials, is_valid_mask, mask))
+    final_state = lax.while_loop(
+        loop_condition_fn, loop_body_fn, (trials, is_valid_mask, mask)
+    )
     final_trials, final_is_valid_mask, final_mask = final_state
 
     if final_trials != max_trials and final_is_valid_mask:
-        cropped_image = image[crop_box[1] : crop_box[3], crop_box[0] : crop_box[2], :]
+        cropped_image = image[
+            crop_box[1] : crop_box[3], crop_box[0] : crop_box[2], :
+        ]
         cropped_boxes = adjust_boxes(boxes, labels, crop_box, final_mask)
         image, final_boxes, key = cropped_image, cropped_boxes, key
 
@@ -132,7 +149,15 @@ def find_valid_crop(
     crop_box, key = get_random_crop(W_original, H_original, key)
     if crop_box is not None:
         final_image, final_boxes, key = crop_and_adjust_boxes(
-            image, labels, key, max_trials, boxes, crop_box, min_iou, max_iou, final_boxes
+            image,
+            labels,
+            key,
+            max_trials,
+            boxes,
+            crop_box,
+            min_iou,
+            max_iou,
+            final_boxes,
         )
     return final_image, final_boxes, key
 
@@ -146,12 +171,16 @@ def get_boxes_labels_mode(image, boxes, jaccard_min_max, key):
     labels = boxes[:, -1:]
     bounding_boxes = boxes[:, :4]
 
-    mode = jax.random.randint(subkey, shape=(), minval=0, maxval=len(jaccard_min_max))
+    mode = jax.random.randint(
+        subkey, shape=(), minval=0, maxval=len(jaccard_min_max)
+    )
 
     return labels, bounding_boxes, mode
 
 
-def attempt_random_crop(image, labels, bounding_boxes, max_trials, iou_range, key, final_boxes):
+def attempt_random_crop(
+    image, labels, bounding_boxes, max_trials, iou_range, key, final_boxes
+):
     """
     Find a valid random crop of the image that satisfies the given IoU range.
     """
@@ -171,7 +200,9 @@ def attempt_random_crop(image, labels, bounding_boxes, max_trials, iou_range, ke
     )
 
 
-def random_sample_crop_fn(image, boxes, probability, max_trials, jaccard_min_max, key):
+def random_sample_crop_fn(
+    image, boxes, probability, max_trials, jaccard_min_max, key
+):
     """
     Randomly crop the image (based on a specified probability) and adjust the bounding boxes.
     """
@@ -183,13 +214,21 @@ def random_sample_crop_fn(image, boxes, probability, max_trials, jaccard_min_max
 
     key, subkey = jax.random.split(key)
 
-    labels, bounding_boxes, mode = get_boxes_labels_mode(image, boxes, jaccard_min_max, subkey)
+    labels, bounding_boxes, mode = get_boxes_labels_mode(
+        image, boxes, jaccard_min_max, subkey
+    )
 
     if jaccard_min_max[mode] is None:
         final_boxes = jp.hstack([bounding_boxes, labels])
     else:
         return attempt_random_crop(
-            image, labels, bounding_boxes, max_trials, jaccard_min_max[mode], key, final_boxes
+            image,
+            labels,
+            bounding_boxes,
+            max_trials,
+            jaccard_min_max[mode],
+            key,
+            final_boxes,
         )
 
     return image, boxes, key
