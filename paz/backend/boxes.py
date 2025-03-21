@@ -334,3 +334,34 @@ def nms_per_class(
         )
         output = output.at[class_arg, :count, :].set(selections)
     return output
+
+
+def compute_iou(box, boxes):
+    """Calculates the intersection over union between 'box' and all 'boxes'.
+    Both `box` and `boxes` are in corner coordinates.
+
+    # Arguments
+        box: JAX array with length at least of 4.
+        boxes: JAX array with shape `(num_boxes, 4)`.
+
+    # Returns
+        JAX array of shape `(num_boxes, 1)`.
+    """
+
+    x_min_A, y_min_A, x_max_A, y_max_A = box[:4]
+    x_min_B, y_min_B = boxes[:, 0], boxes[:, 1]
+    x_max_B, y_max_B = boxes[:, 2], boxes[:, 3]
+    # calculating the intersection
+    inner_x_min = jp.maximum(x_min_B, x_min_A)
+    inner_y_min = jp.maximum(y_min_B, y_min_A)
+    inner_x_max = jp.minimum(x_max_B, x_max_A)
+    inner_y_max = jp.minimum(y_max_B, y_max_A)
+    inner_w = jp.maximum((inner_x_max - inner_x_min), 0)
+    inner_h = jp.maximum((inner_y_max - inner_y_min), 0)
+    intersection_area = inner_w * inner_h
+    # calculating the union
+    box_area_B = (x_max_B - x_min_B) * (y_max_B - y_min_B)
+    box_area_A = (x_max_A - x_min_A) * (y_max_A - y_min_A)
+    union_area = box_area_A + box_area_B - intersection_area
+    intersection_over_union = intersection_area / union_area
+    return intersection_over_union
