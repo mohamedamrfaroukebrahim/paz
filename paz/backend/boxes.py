@@ -374,8 +374,7 @@ def compute_iou(box, boxes):
     intersection_over_union = intersection_area / union_area
     return intersection_over_union
 
-  
+
 def append_class(boxes, class_arg):
     class_args = jp.full((len(boxes), 1), class_arg)
     return jp.hstack((boxes, class_args))
-
