@@ -8,6 +8,7 @@ from paz.backend.boxes import (
     to_corner_form,
     encode,
     decode,
+    compute_iou,
 )
 
 
@@ -163,11 +164,6 @@ def test_match2():
     # Check if class is set to 0 where IoU < threshold
 
 
-# Test compute_iou
-@pytest.mark.skipif(
-    not importlib.util.find_spec("compute_iou"),
-    reason="requires the compute_iou",
-)
 def test_compute_iou():
     box = jp.array([0.0, 0.0, 2.0, 2.0])
     boxes = jp.array([[0.0, 0.0, 2.0, 2.0], [1.0, 1.0, 3.0, 3.0]])
