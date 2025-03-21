@@ -8,8 +8,10 @@ def split(boxes):
     return jp.split(boxes, 4, axis=1)
 
 
-def join(x_min, y_min, x_max, y_max):
-    return jp.concatenate([x_min, y_min, x_max, y_max], axis=1)
+def join(coordinate_0, coordinate_1, coordinate_2, coordinate_3):
+    return jp.concatenate(
+        [coordinate_0, coordinate_1, coordinate_2, coordinate_3], axis=1
+    )
 
 
 def to_center_form(boxes):
@@ -30,11 +32,23 @@ def to_center_form(boxes):
 
 
 def to_xywh(boxes):
+    return xyxy_to_xywh(boxes)
+
+
+def xyxy_to_xywh(boxes):
     x_min, y_min = boxes[:, 0:1], boxes[:, 1:2]
     x_max, y_max = boxes[:, 2:3], boxes[:, 3:4]
     W = x_max - x_min
     H = y_max - y_min
-    return jp.concatenate([x_min, y_min, W, H], axis=1)
+    return join(x_min, y_min, W, H)
+
+
+def xywh_to_xyxy(boxes):
+    x_min, y_min, W, H = split(boxes)
+    x_max = x_min + W
+    y_max = y_min + H
+    boxes = join(x_min, y_min, x_max, y_max)
+    return boxes
 
 
 def to_corner_form(boxes):
@@ -201,9 +215,7 @@ def calculate_IoU_with_best_box(x_min, x_max, y_min, y_max, best_idx, areas):
     Intersection_ymax = jp.minimum(y_max, best_ymax)
 
     Intersection_width = jp.maximum(Intersection_xmax - Intersection_xmin, 0.0)
-    Intersection_height = jp.maximum(
-        Intersection_ymax - Intersection_ymin, 0.0
-    )
+    Intersection_height = jp.maximum(Intersection_ymax - Intersection_ymin, 0.0)
     intersection = Intersection_width * Intersection_height
 
     union = areas + areas[best_idx] - intersection
@@ -284,9 +296,7 @@ def apply_non_max_suppression(boxes, scores, iou_thresh=0.45, top_k=200):
     selected_indices = jp.zeros(top_k, dtype=jp.int32)
     init_state = (0, scores, selected_indices)
 
-    step_fn = _nms_iteration_step(
-        x_min, y_min, x_max, y_max, areas, iou_thresh
-    )
+    step_fn = _nms_iteration_step(x_min, y_min, x_max, y_max, areas, iou_thresh)
     condition_fn = _nms_continuation_condition(top_k)
 
     final_state = lax.while_loop(condition_fn, step_fn, init_state)
@@ -298,9 +308,7 @@ def apply_non_max_suppression(boxes, scores, iou_thresh=0.45, top_k=200):
     return selected_indices, num_selected
 
 
-def nms_per_class(
-    box_data, nms_thresh=0.45, confidence_thresh=0.01, top_k=200
-):
+def nms_per_class(box_data, nms_thresh=0.45, confidence_thresh=0.01, top_k=200):
     """
     Applies non-maximum-suppression per class.
 
@@ -365,3 +373,9 @@ def compute_iou(box, boxes):
     union_area = box_area_A + box_area_B - intersection_area
     intersection_over_union = intersection_area / union_area
     return intersection_over_union
+
+  
+def append_class(boxes, class_arg):
+    class_args = jp.full((len(boxes), 1), class_arg)
+    return jp.hstack((boxes, class_args))
+

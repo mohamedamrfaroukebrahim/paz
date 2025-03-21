@@ -74,11 +74,22 @@ def normalize(image):
     return image / 255.0
 
 
+def denormalize(image):
+    return paz.cast(image * 255.0, jp.uint8)
+
+
 def rgb_to_gray(image):
     rgb_weights = jp.array([0.2989, 0.5870, 0.1140], dtype=image.dtype)
     grayscale = jp.tensordot(image, rgb_weights, axes=(-1, -1))
     grayscale = jp.expand_dims(grayscale, axis=-1)
     return grayscale
+
+
+def RGB_to_GRAY(image):
+    image = normalize(image)
+    image = rgb_to_gray(image)
+    image = denormalize(image)
+    return image
 
 
 def preprocess(image, shape):

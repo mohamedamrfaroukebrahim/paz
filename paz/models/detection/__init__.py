@@ -8,3 +8,4 @@ from .efficientdet import EFFICIENTDETD4
 from .efficientdet import EFFICIENTDETD5
 from .efficientdet import EFFICIENTDETD6
 from .efficientdet import EFFICIENTDETD7
+from .haar_cascade import HaarCascadeDetector
