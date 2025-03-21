@@ -1,5 +1,6 @@
 from functools import partial
-
+import cv2
+import numpy as np
 import jax.numpy as jp
 from jax import vmap
 
@@ -98,3 +99,68 @@ def project_box_and_vertices(intrinsics, world_to_camera, vertices_world):
     points2D = vmap(partial(project_to_2D, camera_matrix))(points3D)
     vertices2D = vmap(partial(project_to_2D, camera_matrix))(vertices_world)
     return points2D.astype(int), vertices2D.astype(int)
+
+
+def compute_focal_length_x(W, horizontal_field_of_view):
+    return (W / 2) * (1 / jp.tan(jp.deg2rad(horizontal_field_of_view / 2.0)))
+
+
+def intrinsics_from_HFOV(H, W, HFOV=70):
+    """Computes camera intrinsics using horizontal field of view (HFOV).
+
+    # Arguments
+        HFOV: Angle in degrees of horizontal field of view.
+        image_shape: List of two floats [H, W].
+
+    # Returns
+        camera intrinsics array (3, 3).
+
+    # Notes:
+
+                   \           /      ^
+                    \         /       |
+                     \ lens  /        | w/2
+    horizontal field  \     / alpha/2 |
+    of view (alpha)____\( )/_________ |      image
+                       /( )\          |      plane
+                      /     <-- f --> |
+                     /       \        |
+                    /         \       |
+                   /           \      v
+
+                Pinhole camera model
+
+    From the image above we know that: tan(alpha/2) = w/2f
+    -> f = w/2 * (1/tan(alpha/2))
+
+    alpha in webcams and phones is often between 50 and 70 degrees.
+    -> 0.7 w <= f <= w
+    """
+    focal_length = compute_focal_length(W, HFOV)
+    camera_intrinsics = jp.array(
+        [
+            [focal_length, 0, W / 2.0],
+            [0, focal_length, H / 2.0],
+            [0, 0, 1.0],
+        ]
+    )
+
+
+def calibrate(images, chessboard_size):
+    H, W = chessboard_size
+    object_points_2D = np.mgrid[0:W, 0:H].T.reshape(-1, 2)
+    zeros = np.zeros((H * W, 1))
+    object_points_3D = np.hstack((object_points_2D, zeros))
+    object_points_3D = np.asarray(object_points_3D, dtype=np.float32)
+
+    points2D, points3D = [], []
+    for image in images:
+        chessboard_found, corners = cv2.findChessboardCorners(image, (W, H))
+        if chessboard_found:
+            points2D.append(corners)
+            points3D.append(object_points_3D)
+
+    shape = image.shape[::-1]
+    parameters = cv2.calibrateCamera(points3D, points2D, shape, None, None)
+    _, camera_matrix, distortion_coefficient, _, _ = parameters
+    return camera_matrix, distortion_coefficient

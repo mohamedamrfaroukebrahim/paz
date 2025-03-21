@@ -1,131 +1,13 @@
-from collections import namedtuple
 import jax.numpy as jp
 import cv2
 import paz
-
-
-def is_open(camera):
-    """Checks if camera is open.
-
-    # Returns
-        Boolean
-    """
-    return camera._camera.isOpened()
-
-
-def is_close(camera):
-    """Checks if camera is close.
-
-    # Returns
-        Boolean
-    """
-    return not is_open(camera)
-
-
-def read(camera):
-    """Reads camera input and returns a frame.
-
-    # Returns
-        Image array.
-    """
-    return camera._camera.read()[1]
-
-
-def stop(camera):
-    """Stops capturing device."""
-    return camera._camera.release()
-
-
-def start(camera):
-    """Starts capturing device
-
-    # Returns
-        Camera object.
-    """
-    camera._camera = cv2.VideoCapture(camera.indentifier)
-    if (camera._camera is None) or is_close(camera):
-        raise ValueError("Unable to open device", camera.identifier)
-    return camera._camera
-
-
-def take_photo(camera):
-    """Starts camera, reads buffer and returns an image.
-
-    # Arguments:
-        camera: paz.Camera namedtuple.
-
-    # Returns:
-        Image array.
-    """
-    start(camera)
-    image = paz.image.BGR_to_RGB(read(camera))
-    stop(camera)
-    return image
-
-
-def compute_focal_length(W, HFOV):
-    return (W / 2) * (1 / jp.tan(jp.deg2rad(HFOV / 2.0)))
-
-
-def intrinsics_from_HFOV(camera, image_shape=None, HFOV=70):
-    """Computes camera intrinsics using horizontal field of view (HFOV).
-
-    # Arguments
-        HFOV: Angle in degrees of horizontal field of view.
-        image_shape: List of two floats [H, W].
-
-    # Returns
-        camera intrinsics array (3, 3).
-
-    # Notes:
-
-                   \           /      ^
-                    \         /       |
-                     \ lens  /        | w/2
-    horizontal field  \     / alpha/2 |
-    of view (alpha)____\( )/_________ |      image
-                       /( )\          |      plane
-                      /     <-- f --> |
-                     /       \        |
-                    /         \       |
-                   /           \      v
-
-                Pinhole camera model
-
-    From the image above we know that: tan(alpha/2) = w/2f
-    -> f = w/2 * (1/tan(alpha/2))
-
-    alpha in webcams and phones is often between 50 and 70 degrees.
-    -> 0.7 w <= f <= w
-    """
-    if image_shape is None:
-        start(camera)
-        H, W = paz.image.get_dimensions(read(camera))
-        stop(camera)
-    else:
-        H, W = image_shape[:2]
-
-    focal_length = compute_focal_length(W, HFOV)
-    camera_intrinsics = jp.array(
-        [
-            [focal_length, 0, W / 2.0],
-            [0, focal_length, H / 2.0],
-            [0, 0, 1.0],
-        ]
-    )
-    return camera_intrinsics
-
-
-# State = namedtuple(
-#     "State", ["identifier", "name", "intrinsics", "distortion", "_camera"]
-# )
 
 
 class Camera(object):
     """Camera abstract class."""
 
     def __init__(
-        self, indentifier=0, name="Camera", intrinsics=None, distortion=None
+        self, identifier=0, name="Camera", intrinsics=None, distortion=None
     ):
         self.identifier = identifier
         self.name = name
@@ -162,19 +44,19 @@ class Camera(object):
     def is_open(self):
         return self._camera.isOpened()
 
-    def is_close(self):
+    def is_closed(self):
         return not self.is_open()
 
     def start(self):
         self._camera = cv2.VideoCapture(self.indentifier)
-        if (self._camera is None) or self.is_close():
+        if (self._camera is None) or self.is_closed():
             raise ValueError("Unable to open device", self.identifier)
 
     def stop(self):
-        raise NotImplementedError
+        return self._camera.release()
 
     def read(self):
-        raise NotImplementedError
+        return paz.image.BGR_to_RGB(self._camera.read()[1])
 
     def save(self, filepath):
         raise NotImplementedError
@@ -183,7 +65,217 @@ class Camera(object):
         raise NotImplementedError
 
     def intrinsics_from_HFOV(self, HFOV=70, image_shape=None):
-        raise NotImplementedError
+        if image_shape is None:
+            self.start()
+            H, W = paz.image.get_dimensions(self.read())
+            self.stop()
+        else:
+            H, W = image_shape[:2]
+        return paz.pinhole.intrinsics_from_HFOV(H, W, HFOV)
 
     def take_photo(self):
-        raise NotImplementedError
+        """Starts camera, reads buffer and returns an image.
+
+        # Arguments:
+            camera: paz.Camera namedtuple.
+
+        # Returns:
+            Image array.
+        """
+        self.start()
+        image = self.read()
+        self.stop()
+        return image
+
+    def calibrate(self, chessboard_size, images=None):
+        """Executes camera calibration for a given chessboard size.
+
+        # Arguments
+            images: Array of shape (num_images, H, W, 3).
+            chessboard_size: Array of shape (H, W).
+
+        # Returns
+            camera_matrix: Array of shape (3, 3) representing the camera matrix
+            distortion_coefficient: Array of shape (1, 5).
+        """
+        if images is None:
+            raise NotImplementedError
+
+        return paz.pinhole.calibrate(images, chessboard_size)
+
+
+class VideoPlayer(object):
+    """Performs visualization inferences in a real-time video.
+
+    # Properties
+        image_size: List of two integers. Output size of the displayed image.
+        pipeline: Function. Should take RGB image as input and it should
+            output a dictionary with key 'image' containing a visualization
+            of the inferences. Built-in pipelines can be found in
+            ``paz/processing/pipelines``.
+
+    # Methods
+        run()
+        record()
+    """
+
+    def __init__(self, image_size, pipeline, camera, topic="image"):
+        self.image_size = tuple(image_size)_
+        self.pipeline = pipeline
+        self.camera = camera
+        self.topic = topic
+
+    def step(self):
+        """Runs the pipeline process once
+
+        # Returns
+            Inferences from ``pipeline``.
+        """
+        frame = self.camera.read()
+        if frame is None:
+            outputs = None
+        else:
+            outputs = self.pipeline(frame)
+        return outputs
+
+    def run(self):
+        """Opens camera and starts continuous inference using ``pipeline``,
+        until the user presses ``q`` inside the opened window.
+        """
+        self.camera.start()
+        while True:
+            output = self.step()
+            if output is None:
+                continue
+            if cv2.waitKey(1) & 0xFF == ord("q"):
+                break
+            image = paz.image.resize(output[self.topic], self.image_size)
+            paz.image.show(image, self.topic, wait=False)
+        self.camera.stop()
+        cv2.destroyAllWindows()
+
+    def record(self, name="video.avi", fps=20, fourCC="XVID"):
+        """Opens camera and records continuous inference using ``pipeline``.
+
+        # Arguments
+            name: String. Video name. Must include the postfix .avi.
+            fps: Int. Frames per second.
+            fourCC: String. Indicates the four character code of the video.
+            e.g. XVID, MJPG, X264.
+        """
+        self.camera.start()
+        fourCC = cv2.VideoWriter_fourcc(*fourCC)
+        writer = cv2.VideoWriter(name, fourCC, fps, self.image_size)
+        while True:
+            output = self.step()
+            if output is None:
+                continue
+            if cv2.waitKey(1) & 0xFF == ord("q"):
+                break
+            image = paz.image.resize(output["image"], self.image_size)
+            paz.image.show(image, self.topic, wait=False)
+            writer.write(paz.image.RGB_to_BGR(image))
+
+        self.camera.stop()
+        writer.release()
+        cv2.destroyAllWindows()
+
+    def record_from_file(
+        self, video_file_path, name="video.avi", fps=20, fourCC="XVID"
+    ):
+        """Load video and records continuous inference using ``pipeline``.
+
+        # Arguments
+            video_file_path: String. Path to the video file.
+            name: String. Output video name. Must include the postfix .avi.
+            fps: Int. Frames per second.
+            fourCC: String. Indicates the four character code of the video.
+            e.g. XVID, MJPG, X264.
+        """
+
+        fourCC = cv2.VideoWriter_fourcc(*fourCC)
+        writer = cv2.VideoWriter(name, fourCC, fps, self.image_size)
+
+        video = cv2.VideoCapture(video_file_path)
+        if video.isOpened() is False:
+            print("Error opening video  file")
+
+        while video.isOpened():
+            is_frame_received, frame = video.read()
+            if not is_frame_received:
+                print("Frame not received. Exiting ...")
+                break
+            if is_frame_received is True:
+                output = self.pipeline(frame)
+                if output is None:
+                    continue
+                image = resize_image(output["image"], tuple(self.image_size))
+                show_image(image, "inference", wait=False)
+                image = convert_color_space(image, BGR2RGB)
+                writer.write(image)
+                if cv2.waitKey(1) & 0xFF == ord("q"):
+                    break
+
+        writer.release()
+        cv2.destroyAllWindows()
+
+    def record_frames(self, name="video.avi", fps=20, fourCC="XVID"):
+        """Opens camera and records continuous inference frames.
+
+        # Arguments
+            name: String. Video name. Must include the postfix .avi.
+            fps: Int. Frames per second.
+            fourCC: String. Indicates the four character code of the video.
+            e.g. XVID, MJPG, X264.
+        """
+        self.camera.start()
+        fourCC = cv2.VideoWriter_fourcc(*fourCC)
+        writer = cv2.VideoWriter(name, fourCC, fps, self.image_size)
+        while True:
+            frame = self.camera.read()
+            if frame is None:
+                print("Frame: None")
+                return None
+            frame = convert_color_space(frame, BGR2RGB)
+            image = resize_image(frame, tuple(self.image_size))
+            show_image(image, "frame", wait=False)
+            image = convert_color_space(image, BGR2RGB)
+            writer.write(image)
+            if cv2.waitKey(1) & 0xFF == ord("q"):
+                break
+
+        self.camera.stop()
+        writer.release()
+        cv2.destroyAllWindows()
+
+    def extract_frames_from_video(
+        self, video_file_path, frame_selection_arg=20
+    ):
+        """Load video and split into frames.
+
+        # Arguments
+            video_file_path: String. Path to the video file.
+            frame_selection_arg: Int. Number of frames to be skipped.
+        """
+
+        video = cv2.VideoCapture(video_file_path)
+        if video.isOpened() is False:
+            print("Error opening video  file")
+
+        frame_arg = 0
+        while video.isOpened():
+            is_frame_received, frame = video.read()
+            if not is_frame_received:
+                print("Frame not received. Exiting ...")
+                break
+            if is_frame_received is True:
+                image = resize_image(frame, tuple(self.image_size))
+                image_path = os.path.join("./images", str(frame_arg) + ".jpg")
+                image = convert_color_space(image, BGR2RGB)
+                if frame_arg % frame_selection_arg == 0:
+                    write_image(image_path, image)
+                frame_arg += 1
+                if cv2.waitKey(1) & 0xFF == ord("q"):
+                    break
+
+        cv2.destroyAllWindows()
