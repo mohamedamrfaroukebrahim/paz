@@ -38,10 +38,8 @@ for filename in sorted(os.listdir(args.images_path)):
     image = paz.image.load(os.path.join(args.images_path, filename))
     images.append(image)
     grid_images.append(preprocess(image, crop_shape, 0, 1))
-mosaic = paz.draw.mosaic(
-    (255 * np.array(grid_images)).astype("uint8"), border=5
-)
-paz.image.show(mosaic.astype("uint8"))
+mosaic = paz.draw.mosaic(np.array(grid_images), border=5, background=0.0)
+paz.image.show(paz.image.denormalize(mosaic))
 
 
 model = torch.hub.load("facebookresearch/dinov2", "dinov2_vitl14")
