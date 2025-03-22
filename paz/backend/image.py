@@ -12,6 +12,8 @@ BGR_IMAGENET_MEAN = (B_IMAGENET_MEAN, G_IMAGENET_MEAN, R_IMAGENET_MEAN)
 RGB_IMAGENET_MEAN = (R_IMAGENET_MEAN, G_IMAGENET_MEAN, B_IMAGENET_MEAN)
 B_IMAGENET_STDEV, G_IMAGENET_STDEV, R_IMAGENET_STDEV = 57.3, 57.1, 58.4
 RGB_IMAGENET_STDEV = (R_IMAGENET_STDEV, G_IMAGENET_STDEV, B_IMAGENET_STDEV)
+GRAY = cv2.IMREAD_GRAYSCALE
+DEPTH = cv2.IMREAD_ANYDEPTH
 
 
 def flip_left_right(image):
@@ -34,8 +36,8 @@ def RGB_to_BGR(image_RGB):
     return image_RGB[..., ::-1]
 
 
-def load(filepath):
-    return jp.array(BGR_to_RGB(cv2.imread(filepath)))
+def load(filepath, flags=None):
+    return jp.array(BGR_to_RGB(cv2.imread(filepath, flags)))
 
 
 def resize(image, shape, method="bilinear"):
