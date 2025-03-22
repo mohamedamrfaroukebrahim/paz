@@ -10,8 +10,22 @@ BILINEAR = cv2.INTER_LINEAR
 B_IMAGENET_MEAN, G_IMAGENET_MEAN, R_IMAGENET_MEAN = 104, 117, 123
 BGR_IMAGENET_MEAN = (B_IMAGENET_MEAN, G_IMAGENET_MEAN, R_IMAGENET_MEAN)
 RGB_IMAGENET_MEAN = (R_IMAGENET_MEAN, G_IMAGENET_MEAN, B_IMAGENET_MEAN)
-B_IMAGENET_STDEV, G_IMAGENET_STDEV, R_IMAGENET_STDEV = 57.3, 57.1, 58.4
-RGB_IMAGENET_STDEV = (R_IMAGENET_STDEV, G_IMAGENET_STDEV, B_IMAGENET_STDEV)
+rgb_IMAGENET_MEAN = jp.array(
+    [
+        R_IMAGENET_MEAN / 255,
+        G_IMAGENET_MEAN / 255,
+        B_IMAGENET_MEAN / 255,
+    ]
+)
+B_IMAGENET_STDV, G_IMAGENET_STDV, R_IMAGENET_STDV = 57.3, 57.1, 58.4
+RGB_IMAGENET_STDV = (R_IMAGENET_STDV, G_IMAGENET_STDV, B_IMAGENET_STDV)
+rgb_IMAGENET_STDV = jp.array(
+    [
+        R_IMAGENET_STDV / 255,
+        G_IMAGENET_STDV / 255,
+        B_IMAGENET_STDV / 255,
+    ]
+)
 GRAY = cv2.IMREAD_GRAYSCALE
 DEPTH = cv2.IMREAD_ANYDEPTH
 
@@ -101,3 +115,26 @@ def preprocess(image, shape):
 def get_dimensions(image):
     H, W = image.shape[:2]
     return H, W
+
+
+def crop_center(image, crop_shape):
+    H_new, W_new = crop_shape
+    H_now, W_now = get_dimensions(image)
+    center_x = W_now // 2
+    center_y = H_now // 2
+    x_min = center_x - (W_new // 2)
+    y_min = center_y - (H_new // 2)
+    x_max = x_min + W_new
+    y_max = y_min + H_new
+    cropped_image = image[y_min:y_max, x_min:x_max]
+    return cropped_image
+
+
+def standardize(image, mean, stdv):
+    return (image - mean) / stdv
+
+
+def normalize_min_max(x, axis=-1):
+    x_min = x.min(axis=axis, keepdims=True)
+    x_max = x.max(axis=axis, keepdims=True)
+    return (x - x_min) / (x_max - x_min)
