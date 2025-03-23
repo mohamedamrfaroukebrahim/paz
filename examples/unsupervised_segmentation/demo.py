@@ -15,12 +15,17 @@ from model import (
     compute_joint_features,
     project_features,
 )
+from pca import apply_PCA_K_means, cluster_features
 
 
 parser = argparse.ArgumentParser(description="Unsupervised Segmentation")
 parser.add_argument("--images_path", default="data/hippogriff", type=str)
 parser.add_argument("--H_crop", default=518, type=int)
 parser.add_argument("--W_crop", default=518, type=int)
+parser.add_argument("--cluster_dimension", default=20, type=int)
+parser.add_argument("--num_parts", default=5, type=int)
+# parser.add_argument("--min_parts", default=2, type=int)
+# parser.add_argument("--max_parts", default=9, type=int)
 parser.add_argument("--threshold", default=0.35, type=float)
 parser.add_argument("--mean", default=paz.image.rgb_IMAGENET_MEAN)
 parser.add_argument("--stdv", default=paz.image.rgb_IMAGENET_STDV)
@@ -59,4 +64,14 @@ plt.imshow(paz.draw.mosaic(masks, (2, 2), 2, 0))
 plt.show()
 
 plt.imshow(paz.draw.mosaic(features, (2, 2), 2, 0.0))
+plt.show()
+
+cluster = paz.partial(apply_PCA_K_means, args.cluster_dimension)
+# fit_scores_args = (joint_features, masks, cluster, min_parts, max_parts)
+# fit_scores = compute_fit_scores(*fit_scores_args)
+# num_parts = estimate_num_parts(fit_scores)
+clusters = cluster_features(cluster, args.num_parts, joint_features, masks)
+plt.imshow(
+    paz.draw.mosaic(clusters, (2, 2), 2, background=0), cmap=plt.cm.Paired
+)
 plt.show()

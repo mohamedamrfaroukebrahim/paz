@@ -19,5 +19,8 @@ from paz.backend.standard import (
     cast,
     to_jax,
     to_numpy,
+    NamedTuple,
 )
+
 from paz.abstract import Model, Node, Input, Sequential
+from paz.models.decomposition import pca as PCA

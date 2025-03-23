@@ -1,4 +1,5 @@
 from functools import wraps, partial
+from collections import namedtuple
 
 import numpy as np
 import jax.numpy as jp
@@ -27,6 +28,10 @@ def lock(function, *args, **kwargs):
         return function(*combined_args, **combined_kwargs)
 
     return wrap
+
+
+def NamedTuple(class_name, **fields):
+    return namedtuple(class_name, fields)(*fields.values())
 
 
 def cast(x, dtype):
