@@ -1,3 +1,4 @@
+import jax
 import jax.numpy as jp
 import paz
 
@@ -30,12 +31,42 @@ def trim_components(eigenvalues, eigenvectors, num_components):
 def fit(x, num_components, total_variance=None):
     mean = compute_mean(x)
     x = subtract_mean(x, mean)
-    covariance_matrix = compute_feature_covariance_matrix(x)
-    values, vectors = compute_eigenvectors(covariance_matrix)
+
+    U, values, vectors = jax.scipy.linalg.svd(x, full_matrices=False)
+
+    # covariance_matrix = compute_feature_covariance_matrix(x)
+    # values, vectors = compute_eigenvectors(covariance_matrix)
     values, vectors = trim_components(values, vectors, num_components)
     return paz.NamedTuple("PCAState", mean=mean, variances=values, base=vectors)
 
 
-def transform(x, state, sample_axis=0):
+def fit_randomized(x, num_components, rng, n_iter=5):
+    n_samples, n_features = x.shape
+    means = jp.mean(x, axis=0, keepdims=True)
+    x = x - means
+
+    # Generate n_features normal vectors of the given size
+    size = jp.minimum(2 * num_components, n_features)
+    Q = jax.random.normal(rng, shape=(n_features, size))
+
+    def step_fn(q, _):
+        q, _ = jax.scipy.linalg.lu(x @ q, permute_l=True)
+        q, _ = jax.scipy.linalg.lu(x.T @ q, permute_l=True)
+        return q, None
+
+    Q, _ = jax.lax.scan(step_fn, init=Q, xs=None, length=n_iter)
+    Q, _ = jax.scipy.linalg.qr(x @ Q, mode="economic")
+    B = Q.T @ x
+
+    _, S, Vt = jax.scipy.linalg.svd(B, full_matrices=False)
+
+    explained_variance = (S[:num_components] ** 2) / (n_samples - 1)
+    A = Vt[:num_components]
+    return paz.NamedTuple(
+        "PCAState", mean=means, variances=explained_variance, base=A
+    )
+
+
+def transform(x, state):
     x = subtract_mean(x, state.mean)
     return (state.base @ x.T).T

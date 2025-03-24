@@ -1,3 +1,7 @@
+import os
+
+os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
+os.environ["KERAS_BACKEND"] = "jax"
 import jax.numpy as jp
 import paz
 import jax
@@ -24,6 +28,7 @@ axis.quiver(
     color="red",
     label="Principal Component 1",
 )
+
 axis.quiver(
     state.mean[0],
     state.mean[1],

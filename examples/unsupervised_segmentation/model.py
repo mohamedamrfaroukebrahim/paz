@@ -59,6 +59,8 @@ def compute_foreground_masks(
     joint_features = apply_PCA(joint_features, 3)
     joint_features = paz.image.normalize_min_max(joint_features)
     foreground_masks = joint_features[..., 0:1] <= threshold
+    # foreground_masks = joint_features[..., 0:1] > threshold
+
     return foreground_masks
 
 
