@@ -1,4 +1,5 @@
 import jax.numpy as jp
+import numpy as np
 import cv2
 import paz
 
@@ -48,7 +49,7 @@ class Camera(object):
         return not self.is_open()
 
     def start(self):
-        self._camera = cv2.VideoCapture(self.indentifier)
+        self._camera = cv2.VideoCapture(self.identifier)
         if (self._camera is None) or self.is_closed():
             raise ValueError("Unable to open device", self.identifier)
 
@@ -56,7 +57,8 @@ class Camera(object):
         return self._camera.release()
 
     def read(self):
-        return paz.image.BGR_to_RGB(self._camera.read()[1])
+        image = paz.image.BGR_to_RGB(self._camera.read()[1])
+        return np.ascontiguousarray(image)
 
     def save(self, filepath):
         raise NotImplementedError
@@ -149,7 +151,8 @@ class VideoPlayer(object):
                 continue
             if cv2.waitKey(1) & 0xFF == ord("q"):
                 break
-            image = paz.image.resize(output[self.topic], self.image_size)
+            topic = getattr(output, self.topic)
+            image = paz.image.resize(topic, self.image_size).astype("uint8")
             paz.image.show(image, self.topic, wait=False)
         self.camera.stop()
         cv2.destroyAllWindows()

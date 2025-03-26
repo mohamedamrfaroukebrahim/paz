@@ -63,3 +63,14 @@ def non_max_suppression(boxes, scores, iou_thresh=0.45, top_k=200):
         ]
 
     return selected_indices.astype(int), num_selected_boxes
+
+
+def split(detections):
+    # TODO assumes class args are the last column
+    boxes = detections[:, :4]
+    class_args = detections[:, 4:5]
+    return boxes, class_args
+
+
+def join(boxes, class_args):
+    return jp.concatenate([boxes, class_args], axis=0)

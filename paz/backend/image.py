@@ -76,7 +76,7 @@ def show(image, name="image", wait=True):
     """
     image = paz.to_numpy(image)
     if image.dtype != np.uint8:
-        raise ValueError("``image`` must be of type ``uint8``")
+        raise ValueError(f"``image`` is type {image.dtype}. Must be ``uint8``")
     image = RGB_to_BGR(image)  # openCV default color space is BGR
     cv2.imshow(name, image)
     if wait:

@@ -1,25 +1,32 @@
-from functools import partial
 import cv2
 from keras.utils import get_file
 import paz
+import numpy as np
 
 
 def preprocess(image):
-    return paz.image.RGB_to_GRAY(image)
+    image = paz.image.RGB_to_GRAY(image)
+    image = paz.to_numpy(image)
+    return image
 
 
-def default_no_boxes():
+def get_default_zero_detection():
     return []
 
 
 def postprocess(boxes, class_arg):
     if len(boxes) == 0:
-        boxes = default_no_boxes()
+        detections = get_default_zero_detection()
     else:
         boxes = paz.boxes.xywh_to_xyxy(boxes)
-        boxes = paz.boxes.append_class(boxes, class_arg)
-        boxes = paz.cast(boxes, int)
-    return boxes
+        detections = paz.boxes.append_class(boxes, class_arg).astype(int)
+    return detections
+
+
+def draw(image, boxes, color, thickness):
+    for box in boxes:
+        image = paz.draw.box(image, paz.to_numpy(box), color, thickness)
+    return image
 
 
 def download(label):
@@ -33,7 +40,7 @@ def download(label):
     return model.detectMultiScale
 
 
-def HaarCascadeDetector(label, scale, neighbors, class_arg):
+def HaarCascadeDetector(label, scale, neighbors, class_arg, color, thickness):
     """Haar cascade detector.
 
     # Arguments
@@ -59,13 +66,26 @@ def HaarCascadeDetector(label, scale, neighbors, class_arg):
         # Returns
             Boxes ``(num_boxes, 4)``.
         """
-        image = preprocess(image)
-        boxes = detect(image, scale, neighbors)
-        boxes = postprocess(boxes)
+        gray_image = preprocess(image)
+        boxes = detect(gray_image, scale, neighbors)
+        boxes = postprocess(boxes, class_arg)
+        image = draw(image, boxes, color, thickness)
+        return paz.NamedTuple("State", image=image, boxes=boxes)
 
     return call
 
 
-HaarCascadeFaceDetector = paz.partial(
-    HaarCascadeDetector, "frontalface_default"
-)
+def HaarCascadeFaceDetector(
+    scale, neighbors, class_arg, color=paz.draw.GREEN, thickness=2
+):
+    return HaarCascadeDetector(
+        "frontalface_default", scale, neighbors, class_arg, color, thickness
+    )
+
+
+def HaarCascadeEyeDetector(
+    scale, neighbors, class_arg, color=paz.draw.GREEN, thickness=2
+):
+    return HaarCascadeDetector(
+        "eye", scale, neighbors, class_arg, color, thickness
+    )

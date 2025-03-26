@@ -20,13 +20,7 @@ parser.add_argument("--W", default=640, type=int)
 args = parser.parse_args()
 
 
-detect = HaarCascadeFaceDetector(1.3, 5, 0)
-
-if args.image_path is None:
-    camera = paz.Camera(args.camera)
-    player = paz.VideoPlayer((args.W, args.H), pipeline, camera)
-    player.run()
-else:
-    image = load_image(args.image_path)
-    predictions = pipeline(image)
-    show_image(predictions["image"])
+pipeline = HaarCascadeFaceDetector(1.3, 5, 0)
+camera = paz.Camera(args.camera)
+player = paz.VideoPlayer((args.H, args.W), pipeline, camera)
+player.run()

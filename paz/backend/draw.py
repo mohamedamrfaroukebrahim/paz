@@ -35,7 +35,9 @@ def rectangle(image, top_left_point, bottom_right_point, color, thickness):
 
 
 def box(image, box, color, thickness):
-    x_min, y_min, x_max, y_max = box
+    x_min, y_min, x_max, y_max = box[:4]
+    print("DATA", type(image), image.dtype, image.shape)
+    print("DATA", type(box), box.dtype, box.shape)
     return rectangle(image, (x_min, y_min), (x_max, y_max), color, thickness)
 
 

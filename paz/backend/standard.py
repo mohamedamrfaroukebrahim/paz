@@ -40,8 +40,19 @@ def cast(x, dtype):
 
 
 def to_numpy(x):
-    return np.array(x)
+    return np.array(x, dtype=x.dtype)
 
 
 def to_jax(x):
     return jp.array(x)
+
+
+def as_numpy_array(function):
+    """Decorator to convert the output of a function into a NumPy array."""
+
+    @wraps(function)
+    def wrapper(*args, **kwargs):
+        result = function(*args, **kwargs)
+        return np.array(result)
+
+    return wrapper
