@@ -2,6 +2,7 @@ import cv2
 import jax.numpy as jp
 from jax import lax
 import paz
+import numpy as np
 
 
 def split(boxes):
@@ -12,6 +13,35 @@ def join(coordinate_0, coordinate_1, coordinate_2, coordinate_3):
     return jp.concatenate(
         [coordinate_0, coordinate_1, coordinate_2, coordinate_3], axis=1
     )
+
+
+def square(boxes):
+    """Makes box coordinates square with sides equal to the longest
+        original side.
+
+    # Arguments
+        box: Numpy array with shape `(4)` with point corner coordinates.
+
+    # Returns
+        returns: List of box coordinates ints.
+    """
+    # TODO add ``calculate_center`` ``calculate_side_dimensions`` functions.
+    x_min, y_min, x_max, y_max = split(boxes)
+    center_x = (x_max + x_min) / 2.0
+    center_y = (y_max + y_min) / 2.0
+    width = x_max - x_min
+    height = y_max - y_min
+
+    if height >= width:
+        half_box = height / 2.0
+        x_min = center_x - half_box
+        x_max = center_x + half_box
+
+    if width > height:
+        half_box = width / 2.0
+        y_min = center_y - half_box
+        y_max = center_y + half_box
+    return join(x_min, y_min, x_max, y_max).astype(int)
 
 
 def to_center_form(boxes):
@@ -116,6 +146,7 @@ def flip_left_right(boxes, image_width):
 def from_selection(image, radius=5, color=(255, 0, 0), window_name="image"):
     points, boxes = [], []
     image = image.copy()
+    image = np.array(image)
 
     def order_xyxy(point_A, point_B):
         (x1, y1) = point_A

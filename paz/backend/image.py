@@ -1,3 +1,4 @@
+import os
 import cv2
 import numpy as np
 import jax
@@ -52,6 +53,12 @@ def RGB_to_BGR(image_RGB):
 
 def load(filepath, flags=None):
     return jp.array(BGR_to_RGB(cv2.imread(filepath, flags)))
+
+
+def write(filepath, image):
+    image = RGB_to_BGR(image)
+    image = np.ascontiguousarray(paz.to_numpy(image))
+    return cv2.imwrite(filepath, image)
 
 
 def resize(image, shape, method="bilinear"):
@@ -115,6 +122,11 @@ def preprocess(image, shape):
 def get_dimensions(image):
     H, W = image.shape[:2]
     return H, W
+
+
+def crop(image, box):
+    x_min, y_min, x_max, y_max = box
+    return image[y_min:y_max, x_min:x_max, :]
 
 
 def crop_center(image, crop_shape):
