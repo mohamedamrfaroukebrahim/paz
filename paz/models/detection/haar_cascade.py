@@ -76,7 +76,7 @@ def HaarCascadeDetector(label, scale, neighbors, class_arg, color, thickness):
 
 
 def HaarCascadeFaceDetector(
-    scale, neighbors, class_arg, color=paz.draw.GREEN, thickness=2
+    scale=1.3, neighbors=5, class_arg=0, color=paz.draw.GREEN, thickness=2
 ):
     return HaarCascadeDetector(
         "frontalface_default", scale, neighbors, class_arg, color, thickness
@@ -84,7 +84,7 @@ def HaarCascadeFaceDetector(
 
 
 def HaarCascadeEyeDetector(
-    scale, neighbors, class_arg, color=paz.draw.GREEN, thickness=2
+    scale=1.3, neighbors=5, class_arg=0, color=paz.draw.GREEN, thickness=2
 ):
     return HaarCascadeDetector(
         "eye", scale, neighbors, class_arg, color, thickness
