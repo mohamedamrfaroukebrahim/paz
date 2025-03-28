@@ -7,11 +7,9 @@ import jax
 
 def should_apply_crop(key, probability):
     """Determines whether to apply a random crop based on a probability threshold.
-
     Args:
-        key (jax.random.PRNGKey): Random number generator key.
+        key (random key): Random number generator key.
         probability (float): Probability threshold between 0 and 1.
-
     Returns:
         bool: True if crop should be applied, False otherwise.
     """
@@ -21,12 +19,10 @@ def should_apply_crop(key, probability):
 
 def filter_boxes_and_labels(boxes, labels, crop_region):
     """Filters boxes and labels retaining only those overlapping with crop region.
-
     Args:
-        boxes (jax.numpy.ndarray): Array of shape (N, 4) in [x_min, y_min, x_max, y_max] format.
-        labels (jax.numpy.ndarray): Array of shape (N,) containing box labels.
-        crop_region (jax.numpy.ndarray): Array of shape (4,) defining [x_min, y_min, x_max, y_max] crop.
-
+        boxes (array): Array of shape (N, 4) in [x_min, y_min, x_max, y_max] format.
+        labels (array): Array of shape (N,) containing box labels.
+        crop_region (array): Array of shape (4,) defining [x_min, y_min, x_max, y_max] crop.
     Returns:
         tuple: Filtered (boxes, labels) arrays.
     """
@@ -41,13 +37,11 @@ def filter_boxes_and_labels(boxes, labels, crop_region):
 
 def adjust_boxes(boxes, crop_region):
     """Adjusts box coordinates relative to the crop region's top-left corner.
-
     Args:
-        boxes (jax.numpy.ndarray): Array of shape (M, 4) in original coordinates.
-        crop_region (jax.numpy.ndarray): Array of shape (4,) defining crop boundaries.
-
+        boxes (array): Array of shape (M, 4) in original coordinates.
+        crop_region (array): Array of shape (4,) defining crop boundaries.
     Returns:
-        jax.numpy.ndarray: Adjusted boxes of shape (M, 4) in crop-relative coordinates.
+        array: Adjusted boxes of shape (M, 4) in crop-relative coordinates.
     """
     top_left = jp.maximum(boxes[:, :2], crop_region[:2]) - crop_region[:2]
     bottom_right = jp.minimum(boxes[:, 2:], crop_region[2:]) - crop_region[:2]
@@ -56,14 +50,12 @@ def adjust_boxes(boxes, crop_region):
 
 def adjust_boxes_and_labels(boxes, labels, crop_region):
     """Filters and adjusts boxes to fit within crop region, maintaining labels.
-
     Args:
-        boxes (jax.numpy.ndarray): Original boxes array of shape (N, 4).
-        labels (jax.numpy.ndarray): Labels array of shape (N,).
-        crop_region (jax.numpy.ndarray): Crop boundaries array of shape (4,).
-
+        boxes (array): Original boxes array of shape (N, 4).
+        labels (array): Labels array of shape (N,).
+        crop_region (array): Crop boundaries array of shape (4,).
     Returns:
-        jax.numpy.ndarray: Concatenated array of adjusted boxes and labels (M, 5).
+        array: Concatenated array of adjusted boxes and labels (M, 5).
     """
     valid_boxes, valid_labels = filter_boxes_and_labels(boxes, labels, crop_region)
     adjusted_boxes = adjust_boxes(valid_boxes, crop_region)
@@ -72,10 +64,8 @@ def adjust_boxes_and_labels(boxes, labels, crop_region):
 
 def compute_crop_limits(original_dim):
     """Computes minimum and maximum allowable crop dimensions.
-
     Args:
         original_dim (int): Original dimension (width/height) of the image.
-
     Returns:
         tuple: (minimum_dimension, maximum_dimension) as integers.
     """
@@ -85,12 +75,10 @@ def compute_crop_limits(original_dim):
 
 def generate_crop_size(key, min_dim, max_dim):
     """Generates random crop size within specified bounds.
-
     Args:
-        key (jax.random.PRNGKey): Random number generator key.
+        key (random key): Random number generator key.
         min_dim (int): Minimum allowable crop dimension.
         max_dim (int): Maximum allowable crop dimension.
-
     Returns:
         int: Randomly generated crop size.
     """
@@ -99,12 +87,10 @@ def generate_crop_size(key, min_dim, max_dim):
 
 def generate_crop_dimensions(key, width, height):
     """Generates valid crop dimensions respecting aspect ratio constraints.
-
     Args:
-        key (jax.random.PRNGKey): Random number generator key.
+        key (random key): Random number generator key.
         width (int): Original image width.
         height (int): Original image height.
-
     Returns:
         tuple: (crop_width, crop_height) dimensions.
     """
@@ -115,16 +101,14 @@ def generate_crop_dimensions(key, width, height):
 
 def build_crop_region(key, width, height, orig_width, orig_height):
     """Constructs crop region coordinates within original image boundaries.
-
     Args:
-        key (jax.random.PRNGKey): Random number generator key.
+        key (random key): Random number generator key.
         width (int): Crop width.
         height (int): Crop height.
         orig_width (int): Original image width.
         orig_height (int): Original image height.
-
     Returns:
-        jax.numpy.ndarray: Crop region array [x_start, y_start, x_end, y_end].
+        array: Crop region array [x_start, y_start, x_end, y_end].
     """
     x_start = jax.random.randint(key, (), 0, orig_width - width, dtype=jp.int32)
     y_start = jax.random.randint(key, (), 0, orig_height - height, dtype=jp.int32)
@@ -133,13 +117,11 @@ def build_crop_region(key, width, height, orig_width, orig_height):
 
 def verify_crop_aspect(crop_width, crop_region):
     """Validates crop region's aspect ratio between 0.5 and 2.0.
-
     Args:
         crop_width (int): Width of the candidate crop.
-        crop_region (jax.numpy.ndarray): Crop region coordinates.
-
+        crop_region (array): Crop region coordinates.
     Returns:
-        jax.numpy.ndarray: Original crop region if valid, else zero array.
+        array: Original crop region if valid, else zero array.
     """
     crop_height = crop_region[3] - crop_region[1]
     aspect_ratio = crop_height / crop_width
@@ -149,32 +131,26 @@ def verify_crop_aspect(crop_width, crop_region):
 
 def get_random_crop_region(key, original_width, original_height):
     """Generates random crop region with valid aspect ratio.
-
     Args:
-        key (jax.random.PRNGKey): Random number generator key.
+        key (random key): Random number generator key.
         original_width (int): Original image width.
         original_height (int): Original image height.
-
     Returns:
-        jax.numpy.ndarray: Valid crop region coordinates or zero array.
+        array: Valid crop region coordinates or zero array.
     """
     crop_width, crop_height = generate_crop_dimensions(key, original_width, original_height)
-    valid_crop_region = build_crop_region(
-        key, crop_width, crop_height, original_width, original_height
-    )
+    valid_crop_region = build_crop_region(key, crop_width, crop_height, original_width, original_height)
     crop_region = verify_crop_aspect(crop_width, valid_crop_region)
     return crop_region
 
 
 def is_inside_crop_mask(box_centers, crop_region):
     """Checks if box centers fall within crop region.
-
     Args:
-        box_centers (jax.numpy.ndarray): Array of shape (N, 2) containing box centers.
-        crop_region (jax.numpy.ndarray): Crop region coordinates array.
-
+        box_centers (array): Array of shape (N, 2) containing box centers.
+        crop_region (array): Crop region coordinates array.
     Returns:
-        jax.numpy.ndarray: Boolean mask of shape (N,) indicating valid centers.
+        array: Boolean mask of shape (N,) indicating valid centers.
     """
     x_center, y_center = box_centers[:, 0], box_centers[:, 1]
     x_min, y_min, x_max, y_max = crop_region
@@ -183,13 +159,11 @@ def is_inside_crop_mask(box_centers, crop_region):
 
 def get_center_inside_crop(boxes, crop_region):
     """Computes box centers and checks inclusion in crop region.
-
     Args:
-        boxes (jax.numpy.ndarray): Array of shape (N, 4) in [x_min, y_min, x_max, y_max] format.
-        crop_region (jax.numpy.ndarray): Crop region coordinates array.
-
+        boxes (array): Array of shape (N, 4) in [x_min, y_min, x_max, y_max] format.
+        crop_region (array): Crop region coordinates array.
     Returns:
-        jax.numpy.ndarray: Boolean mask indicating boxes with centers inside crop.
+        array: Boolean mask indicating boxes with centers inside crop.
     """
     box_centers = (boxes[:, :2] + boxes[:, 2:]) / 2.0
     return is_inside_crop_mask(box_centers, crop_region)
@@ -197,11 +171,9 @@ def get_center_inside_crop(boxes, crop_region):
 
 def calculate_IoU_and_center_mask(boxes, crop_region):
     """Computes IoU values and center validity for boxes relative to crop region.
-
     Args:
-        boxes (jax.numpy.ndarray): Array of shape (N, 4) containing bounding boxes.
-        crop_region (jax.numpy.ndarray): Crop region coordinates array.
-
+        boxes (array): Array of shape (N, 4) containing bounding boxes.
+        crop_region (array): Crop region coordinates array.
     Returns:
         tuple: (IoU_values, center_inside_mask) arrays.
     """
@@ -212,13 +184,11 @@ def calculate_IoU_and_center_mask(boxes, crop_region):
 
 def validate_crop_constraints(boxes, crop_region, min_IoU, max_IoU):
     """Validates crop region against IoU thresholds and center inclusion.
-
     Args:
-        boxes (jax.numpy.ndarray): Bounding boxes array.
-        crop_region (jax.numpy.ndarray): Candidate crop region.
+        boxes (array): Bounding boxes array.
+        crop_region (array): Candidate crop region.
         min_IoU (float): Minimum acceptable IoU threshold.
         max_IoU (float): Maximum acceptable IoU threshold.
-
     Returns:
         tuple: (is_valid_crop, center_inside_mask) validation results.
     """
@@ -231,11 +201,9 @@ def validate_crop_constraints(boxes, crop_region, min_IoU, max_IoU):
 
 def should_continue_search(trial_state, max_attempts):
     """Determines if crop search should continue based on attempt count.
-
     Args:
         trial_state (tuple): (attempts, is_valid, mask) current search state.
         max_attempts (int): Maximum allowed attempts.
-
     Returns:
         bool: True if search should continue, False otherwise.
     """
@@ -245,14 +213,12 @@ def should_continue_search(trial_state, max_attempts):
 
 def update_search_state(trial_state, boxes, crop_region, min_IoU, max_IoU):
     """Updates search state during crop validation attempts.
-
     Args:
         trial_state (tuple): Current (attempts, is_valid, mask) state.
-        boxes (jax.numpy.ndarray): Bounding boxes array.
-        crop_region (jax.numpy.ndarray): Candidate crop region.
+        boxes (array): Bounding boxes array.
+        crop_region (array): Candidate crop region.
         min_IoU (float): Minimum IoU threshold.
         max_IoU (float): Maximum IoU threshold.
-
     Returns:
         tuple: Updated search state.
     """
@@ -263,14 +229,12 @@ def update_search_state(trial_state, boxes, crop_region, min_IoU, max_IoU):
 
 def search_valid_crop(boxes, crop_region, min_IoU, max_IoU, max_attempts):
     """Performs iterative search for valid crop region meeting constraints.
-
     Args:
-        boxes (jax.numpy.ndarray): Bounding boxes array.
-        crop_region (jax.numpy.ndarray): Initial candidate crop region.
+        boxes (array): Bounding boxes array.
+        crop_region (array): Initial candidate crop region.
         min_IoU (float): Minimum acceptable IoU value.
         max_IoU (float): Maximum acceptable IoU value.
         max_attempts (int): Maximum number of validation attempts.
-
     Returns:
         tuple: Final search state (attempts, is_valid, mask).
     """
@@ -284,13 +248,11 @@ def search_valid_crop(boxes, crop_region, min_IoU, max_IoU, max_attempts):
 
 def apply_crop_to_image_and_boxes(image, boxes, labels, crop_region):
     """Applies crop operation to image and adjusts bounding boxes.
-
     Args:
-        image (jax.numpy.ndarray): Input image array (H, W, C).
-        boxes (jax.numpy.ndarray): Bounding boxes array.
-        labels (jax.numpy.ndarray): Box labels array.
-        crop_region (jax.numpy.ndarray): Crop region coordinates.
-
+        image (array): Input image array (H, W, C).
+        boxes (array): Bounding boxes array.
+        labels (array): Box labels array.
+        crop_region (array): Crop region coordinates.
     Returns:
         tuple: (cropped_image, adjusted_boxes) arrays.
     """
@@ -301,38 +263,30 @@ def apply_crop_to_image_and_boxes(image, boxes, labels, crop_region):
 
 def validate_crop_region(boxes, crop_region, min_IoU, max_IoU, max_attempts):
     """Validates if acceptable crop region found within attempt limit.
-
     Args:
-        boxes (jax.numpy.ndarray): Bounding boxes array.
-        crop_region (jax.numpy.ndarray): Candidate crop region.
+        boxes (array): Bounding boxes array.
+        crop_region (array): Candidate crop region.
         min_IoU (float): Minimum IoU threshold.
         max_IoU (float): Maximum IoU threshold.
         max_attempts (int): Maximum allowed validation attempts.
-
     Returns:
         bool: True if valid crop found, False otherwise.
     """
-    trial_count, is_valid, valid_mask = search_valid_crop(
-        boxes, crop_region, min_IoU, max_IoU, max_attempts
-    )
+    trial_count, is_valid, valid_mask = search_valid_crop(boxes, crop_region, min_IoU, max_IoU, max_attempts)
     return trial_count < max_attempts and is_valid
 
 
-def perform_crop_operation(
-    image, labels, max_attempts, boxes, crop_region, min_IoU, max_IoU, original_boxes
-):
+def perform_crop_operation(image, labels, max_attempts, boxes, crop_region, min_IoU, max_IoU, original_boxes):
     """Executes crop operation if valid region found, else returns original.
-
     Args:
-        image (jax.numpy.ndarray): Input image array.
-        labels (jax.numpy.ndarray): Box labels array.
+        image (array): Input image array.
+        labels (array): Box labels array.
         max_attempts (int): Maximum validation attempts.
-        boxes (jax.numpy.ndarray): Bounding boxes array.
-        crop_region (jax.numpy.ndarray): Candidate crop region.
+        boxes (array): Bounding boxes array.
+        crop_region (array): Candidate crop region.
         min_IoU (float): Minimum IoU threshold.
         max_IoU (float): Maximum IoU threshold.
-        original_boxes (jax.numpy.ndarray): Original boxes before processing.
-
+        original_boxes (array): Original boxes before processing.
     Returns:
         tuple: (image, boxes) either cropped or original.
     """
@@ -345,19 +299,17 @@ def find_valid_crop_region(
     key, image, labels, max_attempts, width, height, boxes, min_IoU, max_IoU, original_boxes
 ):
     """Attempts to find valid crop region through multiple trials.
-
     Args:
-        key (jax.random.PRNGKey): Random number generator key.
-        image (jax.numpy.ndarray): Input image array.
-        labels (jax.numpy.ndarray): Box labels array.
+        key (random key): Random number generator key.
+        image (array): Input image array.
+        labels (array): Box labels array.
         max_attempts (int): Maximum validation attempts.
         width (int): Original image width.
         height (int): Original image height.
-        boxes (jax.numpy.ndarray): Bounding boxes array.
+        boxes (array): Bounding boxes array.
         min_IoU (float): Minimum IoU threshold.
         max_IoU (float): Maximum IoU threshold.
-        original_boxes (jax.numpy.ndarray): Original boxes before processing.
-
+        original_boxes (array): Original boxes before processing.
     Returns:
         tuple: (image, boxes) either cropped or original.
     """
@@ -371,12 +323,10 @@ def find_valid_crop_region(
 
 def extract_boxes_and_labels(key, boxes, IoU_thresholds):
     """Extracts box coordinates and labels while selecting IoU mode.
-
     Args:
-        key (jax.random.PRNGKey): Random number generator key.
-        boxes (jax.numpy.ndarray): Input array containing boxes and labels.
+        key (random key): Random number generator key.
+        boxes (array): Input array containing boxes and labels.
         IoU_thresholds (tuple): Available IoU threshold configurations.
-
     Returns:
         tuple: (labels, bounding_boxes, IoU_mode) extracted components.
     """
@@ -388,11 +338,9 @@ def extract_boxes_and_labels(key, boxes, IoU_thresholds):
 
 def check_crop_application(key, probability):
     """Determines if crop should be applied and updates RNG key.
-
     Args:
-        key (jax.random.PRNGKey): Random number generator key.
+        key (random key): Random number generator key.
         probability (float): Crop application probability.
-
     Returns:
         bool: Decision whether to apply crop.
     """
@@ -400,20 +348,16 @@ def check_crop_application(key, probability):
     return apply_crop
 
 
-def attempt_crop_with_IoU(
-    key, image, labels, bounding_boxes, max_attempts, IoU_range, original_boxes
-):
+def attempt_crop_with_IoU(key, image, labels, bounding_boxes, max_attempts, IoU_range, original_boxes):
     """Attempts to find a valid crop region that satisfies IoU constraints with original bounding boxes.
-
     Args:
-        key: JAX random key for deterministic randomness.
+        key: Random key for deterministic randomness.
         image: Input image array to crop.
         labels: List of object class labels associated with bounding boxes.
         bounding_boxes: List of bounding box coordinates in format [ymin, xmin, ymax, xmax].
         max_attempts: Maximum number of random crop attempts before giving up.
         IoU_range: Tuple (min_IoU, max_IoU) defining valid IoU range for crop region.
         original_boxes: Original bounding boxes before any transformations.
-
     Returns:
         Result of find_valid_crop_region() containing cropped image and adjusted annotations.
     """
@@ -435,15 +379,13 @@ def attempt_crop_with_IoU(
 
 def random_sample_crop(key, image, boxes, probability, max_trials, IoU_thresholds):
     """Performs random sample cropping with IoU validation for object detection.
-
     Args:
-        key: JAX random key for deterministic randomness.
+        key: Random key for deterministic randomness.
         image: Input image array to crop.
         boxes: Object detection annotations containing bounding boxes and labels.
         probability: Probability of applying the crop operation (0.0 to 1.0).
         max_trials: Maximum number of IoU validation attempts per crop mode.
         IoU_thresholds: Tuple of IoU range tuples for different cropping modes.
-
     Returns:
         Tuple containing:
             - Cropped image array (or original if crop not applied)
@@ -451,18 +393,14 @@ def random_sample_crop(key, image, boxes, probability, max_trials, IoU_threshold
     """
     apply_crop = check_crop_application(key, probability)
     labels, bounding_boxes, IoU_mode = extract_boxes_and_labels(key, boxes, IoU_thresholds)
-
     if (not apply_crop) or (IoU_thresholds[IoU_mode] is None):
         return image, boxes
-
-    return attempt_crop_with_IoU(
-        key, image, labels, bounding_boxes, max_trials, IoU_thresholds[IoU_mode], boxes
-    )
+    return attempt_crop_with_IoU(key, image, labels, bounding_boxes,
+                                 max_trials, IoU_thresholds[IoU_mode], boxes)
 
 
 def create_jaccard_thresholds():
     """Creates predefined Jaccard Index (IoU) threshold ranges for different crop modes.
-
     Returns:
         Tuple containing 6 IoU threshold configurations:
             - None: No cropping
@@ -484,18 +422,16 @@ def create_jaccard_thresholds():
 
 def initialize_crop_processor(probability=0.5, max_trials=50, seed=0):
     """Initializes cropping processor with configuration parameters.
-
     Args:
         probability: Probability of applying crop operation (default: 0.5)
         max_trials: Maximum IoU validation attempts per crop (default: 50)
-        seed: Random seed for JAX key initialization (default: 0)
-
+        seed: Random seed for initialization (default: 0)
     Returns:
         SimpleNamespace containing:
             - probability: Crop application probability
             - max_trials: Maximum validation attempts
             - jaccard_min_max: Predefined IoU thresholds
-            - key: JAX random key initialized with seed
+            - key: Random key initialized with seed
     """
     return types.SimpleNamespace(
         probability=probability,
@@ -507,13 +443,11 @@ def initialize_crop_processor(probability=0.5, max_trials=50, seed=0):
 
 def extract_processor_parameters(processor):
     """Extracts operational parameters from cropping processor object.
-
     Args:
         processor: SimpleNamespace containing crop configuration
-
     Returns:
         Tuple containing:
-            - JAX random key
+            - Random key
             - Crop application probability
             - Maximum validation trials
             - Jaccard/IoU threshold configurations
@@ -529,12 +463,10 @@ def extract_processor_parameters(processor):
 
 def execute_crop_and_update(image, boxes, processor):
     """Executes cropping operation and updates processor state.
-
     Args:
         image: Input image array to process
         boxes: Object detection annotations (bounding boxes + labels)
         processor: Configuration object containing crop parameters
-
     Returns:
         Tuple containing:
             - Cropped image array (or original)
@@ -550,25 +482,22 @@ def execute_crop_and_update(image, boxes, processor):
 def RandomSampleCrop(probability=0.5, max_trials=50, seed=0):
     """
     Creates a random sample crop processor for object detection data augmentation.
-
     This processor randomly crops images while ensuring bounding box validity based on
     Intersection-over-Union (IoU) constraints. It maintains a set of predefined IoU
     thresholds for different cropping behaviors and uses a probabilistic approach
     to determine when to apply cropping.
-
     Args:
         probability (float, optional): Probability of applying the crop (0.0 to 1.0).
             Defaults to 0.5.
         max_trials (int, optional): Maximum number of attempts to find a valid crop
             region that satisfies IoU constraints. Defaults to 50.
         seed (int, optional): Random seed for reproducibility. Defaults to 0.
-
     Returns:
         SimpleNamespace: A processor object containing:
             - `probability`: Crop application probability
             - `max_trials`: Maximum validation attempts
             - `jaccard_min_max`: Predefined IoU thresholds for different modes
-            - `key`: JAX random key for RNG operations
+            - `key`: Random key for RNG operations
             - `call()`: Method to apply cropping to an image and bounding boxes
     """
     processor = initialize_crop_processor(probability, max_trials, seed)

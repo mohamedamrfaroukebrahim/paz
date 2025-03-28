@@ -3,7 +3,7 @@ import jax.numpy as jp
 import pytest
 from paz.backend.boxes import (
     apply_non_max_suppression,
-    nms_per_class,
+    NMS_per_class,
     to_center_form,
     to_corner_form,
     encode,
@@ -14,13 +14,9 @@ from paz.backend.boxes import (
 
 # Test apply_non_max_suppression
 def test_apply_non_max_suppression():
-    boxes = jp.array(
-        [[0.0, 0.0, 1.0, 1.0], [0.0, 0.0, 1.0, 1.0], [2.0, 2.0, 3.0, 3.0]]
-    )
+    boxes = jp.array([[0.0, 0.0, 1.0, 1.0], [0.0, 0.0, 1.0, 1.0], [2.0, 2.0, 3.0, 3.0]])
     scores = jp.array([0.8, 0.9, 0.7])
-    selected_indices, count = apply_non_max_suppression(
-        boxes, scores, 0.5, 200
-    )
+    selected_indices, count = apply_non_max_suppression(boxes, scores, 0.5, 200)
     assert count == 2
     assert selected_indices[0] == 1 and selected_indices[1] == 2
 
@@ -32,8 +28,8 @@ def test_apply_non_max_suppression_empty():
     assert count == 0
 
 
-# Test nms_per_class
-def test_nms_per_class():
+# Test NMS_per_class
+def test_NMS_per_class():
     box_data = jp.array(
         [
             [0.0, 0.0, 1.0, 1.0, 0.1, 0.9],
@@ -41,7 +37,7 @@ def test_nms_per_class():
             [2.0, 2.0, 3.0, 3.0, 0.7, 0.3],
         ]
     )
-    output = nms_per_class(box_data, 0.5, 0.01, 200)
+    output = NMS_per_class(box_data, 0.5, 0.01, 200)
     assert output.shape == (2, 200, 5)
     # Check if class 1 (index 1) has the high-scoring box
 
@@ -103,9 +99,7 @@ def test_compute_max_matches():
     reason="requires the get_matches_masks",
 )
 def test_get_matches_masks():
-    boxes = jp.array(
-        [[0.0, 0.0, 2.0, 2.0, 1.0]]
-    )  # Ground truth in corner form
+    boxes = jp.array([[0.0, 0.0, 2.0, 2.0, 1.0]])  # Ground truth in corner form
     # Prior boxes in CENTER FORM (x_center, y_center, width, height)
     prior_boxes = jp.array(
         [
@@ -113,9 +107,7 @@ def test_get_matches_masks():
             [2.0, 2.0, 2.0, 2.0],
         ]
     )  # Converts to [1, 1, 3, 3] in corner form
-    matched_arg, pos_mask, ignore_mask = get_matches_masks(
-        boxes, prior_boxes, 0.5, 0.4
-    )
+    matched_arg, pos_mask, ignore_mask = get_matches_masks(boxes, prior_boxes, 0.5, 0.4)
     assert pos_mask[0] == True  # IoU is 1.0 (perfect overlap)
     assert pos_mask[1] == False  # IoU is 1/7 ≈ 0.14 (no overlap)
     assert ignore_mask[1] == False  # Negative mask (IoU < 0.4)
@@ -127,9 +119,7 @@ def test_get_matches_masks():
     reason="requires the mask_classes",
 )
 def test_mask_classes():
-    matched_boxes = jp.array(
-        [[0.0, 0.0, 2.0, 2.0, 1.0], [1.0, 1.0, 3.0, 3.0, 2.0]]
-    )
+    matched_boxes = jp.array([[0.0, 0.0, 2.0, 2.0, 1.0], [1.0, 1.0, 3.0, 3.0, 2.0]])
     positive_mask = jp.array([True, False])
     ignoring_mask = jp.array([False, False])
     masked = mask_classes(matched_boxes, positive_mask, ignoring_mask)
@@ -147,9 +137,7 @@ def test_match():
     prior_boxes = jp.array([[1.0, 1.0, 2.0, 2.0], [2.0, 2.0, 2.0, 2.0]])
     matched = match(boxes, prior_boxes, 0.5, 0.4)
     assert matched.shape == (2, 5)
-    assert (
-        matched[0, 4] == 1.0
-    )  # IoU is (1/7) which is ~0.142 <0.5, so negative
+    assert matched[0, 4] == 1.0  # IoU is (1/7) which is ~0.142 <0.5, so negative
 
 
 @pytest.mark.skipif(
