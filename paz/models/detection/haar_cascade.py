@@ -50,7 +50,7 @@ def HaarCascadeDetector(label, scale, neighbors, class_arg, draw=None):
     return call if draw is None else call_and_draw
 
 
-def HaarCascadeFaceDetector(
+def HaarCascadeFrontalFaceDetector(
     scale=1.3,
     neighbors=5,
     class_arg=0,
