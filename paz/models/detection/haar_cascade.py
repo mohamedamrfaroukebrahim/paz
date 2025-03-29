@@ -1,32 +1,6 @@
-import cv2
 from keras.utils import get_file
+import cv2
 import paz
-import numpy as np
-
-
-def preprocess(image):
-    image = paz.image.RGB_to_GRAY(image)
-    image = paz.to_numpy(image)
-    return image
-
-
-def get_default_zero_detection():
-    return []
-
-
-def postprocess(boxes, class_arg):
-    if len(boxes) == 0:
-        detections = get_default_zero_detection()
-    else:
-        boxes = paz.boxes.xywh_to_xyxy(boxes)
-        detections = paz.boxes.append_class(boxes, class_arg).astype(int)
-    return detections
-
-
-def draw(image, boxes, color, thickness):
-    for box in boxes:
-        image = paz.draw.box(image, paz.to_numpy(box), color, thickness)
-    return image
 
 
 def download(label):
@@ -40,20 +14,41 @@ def download(label):
     return model.detectMultiScale
 
 
-def HaarCascadeDetector(label, scale, neighbors, class_arg, color, thickness):
+def preprocess(image):
+    image = paz.image.RGB_to_GRAY(image)
+    image = paz.to_numpy(image)
+    return image
+
+
+def postprocess(boxes, class_arg):
+    if len(boxes) == 0:
+        detections = []
+    else:
+        boxes = paz.boxes.xywh_to_xyxy(boxes)
+        detections = paz.boxes.append_class(boxes, class_arg).astype(int)
+    return detections
+
+
+def HaarCascadeDetector(
+    label,
+    scale,
+    neighbors,
+    class_arg,
+    color,
+    thickness,
+):
     """Haar cascade detector.
 
     # Arguments
-        label: String. Postfix openCV haarcascades XML name
-            e.g. `eye`, `frontalface_alt2`, `fullbody`
+        label: String. Postfix openCV haarcascades XML name e.g `eye`, `face`.
             see references for all labels.
-        class_arg: int. Class label argument.
         scale = float. Scale for image reduction
         neighbors: int. Minimum neighbors
+        class_arg: int. Class label argument.
 
     # Reference
-        - [Haar
-            Cascades](https://github.com/opencv/opencv/tree/master/data/haarcascades)
+        - [Haar Cascades](
+        https://github.com/opencv/opencv/tree/master/data/haarcascades)
     """
     detect = download(label)
 
@@ -69,7 +64,7 @@ def HaarCascadeDetector(label, scale, neighbors, class_arg, color, thickness):
         gray_image = preprocess(image)
         boxes = detect(gray_image, scale, neighbors)
         boxes = postprocess(boxes, class_arg)
-        image = draw(image, boxes, color, thickness)
+        image = paz.draw.boxes(image, boxes, color, thickness)
         return paz.NamedTuple("State", image=image, boxes=boxes)
 
     return call

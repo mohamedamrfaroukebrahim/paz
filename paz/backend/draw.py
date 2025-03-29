@@ -1,6 +1,7 @@
 import math
-import cv2
 import numpy as np
+import cv2
+import paz
 
 GREEN = (0, 255, 0)
 RED = (255, 0, 0)
@@ -34,9 +35,15 @@ def rectangle(image, top_left_point, bottom_right_point, color, thickness):
     return image
 
 
-def box(image, box, color, thickness):
+def box(image, box, color=GREEN, thickness=2):
     x_min, y_min, x_max, y_max = box[:4]
     return rectangle(image, (x_min, y_min), (x_max, y_max), color, thickness)
+
+
+def boxes(image, boxes, color=GREEN, thickness=2):
+    for box in boxes:
+        image = paz.draw.box(image, box.tolist(), color, thickness)
+    return image
 
 
 def circle(image, point, radius, color):

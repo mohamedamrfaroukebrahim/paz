@@ -102,7 +102,7 @@ def denormalize(image):
 
 
 def rgb_to_gray(image):
-    rgb_weights = jp.array([0.2989, 0.5870, 0.1140], dtype=image.dtype)
+    rgb_weights = jp.array([0.2989, 0.5870, 0.1140])
     grayscale = jp.tensordot(image, rgb_weights, axes=(-1, -1))
     grayscale = jp.expand_dims(grayscale, axis=-1)
     return grayscale
