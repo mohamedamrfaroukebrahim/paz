@@ -25,3 +25,4 @@ from paz.backend.standard import (
 
 from paz.abstract import Model, Node, Input, Sequential
 from paz.models.decomposition import pca as PCA
+from paz import message

@@ -1,6 +1,8 @@
+from collections import namedtuple
 from keras.utils import get_file
 import cv2
 import paz
+import jax.numpy as jp
 
 
 def download(label):
@@ -14,73 +16,55 @@ def download(label):
     return model.detectMultiScale
 
 
+def get_empty_boxes():
+    return jp.full((1, 5), -1)
+
+
 def preprocess(image):
-    image = paz.image.RGB_to_GRAY(image)
-    image = paz.to_numpy(image)
-    return image
+    return paz.image.RGB_to_GRAY(image)
 
 
 def postprocess(boxes, class_arg):
-    if len(boxes) == 0:
-        detections = []
-    else:
-        boxes = paz.boxes.xywh_to_xyxy(boxes)
-        detections = paz.boxes.append_class(boxes, class_arg).astype(int)
-    return detections
+    boxes = paz.boxes.xywh_to_xyxy(boxes)
+    boxes = paz.boxes.append_class(boxes, class_arg).astype(int)
+    return boxes
 
 
-def HaarCascadeDetector(
-    label,
-    scale,
-    neighbors,
-    class_arg,
-    color,
-    thickness,
-):
-    """Haar cascade detector.
-
-    # Arguments
-        label: String. Postfix openCV haarcascades XML name e.g `eye`, `face`.
-            see references for all labels.
-        scale = float. Scale for image reduction
-        neighbors: int. Minimum neighbors
-        class_arg: int. Class label argument.
-
-    # Reference
-        - [Haar Cascades](
-        https://github.com/opencv/opencv/tree/master/data/haarcascades)
-    """
+def HaarCascadeDetector(label, scale, neighbors, class_arg, draw=None):
+    """Haar cascade detector."""
     detect = download(label)
 
-    def call(image):
-        """Detects faces from an RGB image.
+    def call(RGB_image):
+        gray_image = preprocess(RGB_image)
+        boxes = detect(paz.to_numpy(gray_image), scale, neighbors)
+        if len(boxes) == 0:
+            boxes = get_empty_boxes()
+        else:
+            boxes = postprocess(boxes, class_arg)
+        return paz.message.Detections(RGB_image, boxes)
 
-        # Arguments
-            image: Array of shape ``(H, W, 3)``.
+    def call_and_draw(RGB_image):
+        boxes = call(RGB_image).boxes
+        return paz.message.Detections(draw(RGB_image, boxes), boxes)
 
-        # Returns
-            Boxes ``(num_boxes, 4)``.
-        """
-        gray_image = preprocess(image)
-        boxes = detect(gray_image, scale, neighbors)
-        boxes = postprocess(boxes, class_arg)
-        image = paz.draw.boxes(image, boxes, color, thickness)
-        return paz.NamedTuple("State", image=image, boxes=boxes)
-
-    return call
+    return call if draw is None else call_and_draw
 
 
 def HaarCascadeFaceDetector(
-    scale=1.3, neighbors=5, class_arg=0, color=paz.draw.GREEN, thickness=2
+    scale=1.3,
+    neighbors=5,
+    class_arg=0,
+    draw=paz.lock(paz.draw.boxes, paz.draw.GREEN, 2),
 ):
     return HaarCascadeDetector(
-        "frontalface_default", scale, neighbors, class_arg, color, thickness
+        "frontalface_default", scale, neighbors, class_arg, draw
     )
 
 
 def HaarCascadeEyeDetector(
-    scale=1.3, neighbors=5, class_arg=0, color=paz.draw.GREEN, thickness=2
+    scale=1.3,
+    neighbors=5,
+    class_arg=0,
+    draw=paz.lock(paz.draw.boxes, paz.draw.GREEN, 2),
 ):
-    return HaarCascadeDetector(
-        "eye", scale, neighbors, class_arg, color, thickness
-    )
+    return HaarCascadeDetector("eye", scale, neighbors, class_arg, draw)

@@ -9,10 +9,14 @@ def split(boxes):
     return jp.split(boxes, 4, axis=1)
 
 
-def join(coordinate_0, coordinate_1, coordinate_2, coordinate_3):
+def merge(coordinate_0, coordinate_1, coordinate_2, coordinate_3):
     return jp.concatenate(
         [coordinate_0, coordinate_1, coordinate_2, coordinate_3], axis=1
     )
+
+
+def join(boxes):
+    return jp.concatenate(boxes, axis=0)
 
 
 def square(boxes):
@@ -41,7 +45,7 @@ def square(boxes):
         half_box = width / 2.0
         y_min = center_y - half_box
         y_max = center_y + half_box
-    return join(x_min, y_min, x_max, y_max).astype(int)
+    return merge(x_min, y_min, x_max, y_max).astype(int)
 
 
 def to_center_form(boxes):
@@ -70,14 +74,14 @@ def xyxy_to_xywh(boxes):
     x_max, y_max = boxes[:, 2:3], boxes[:, 3:4]
     W = x_max - x_min
     H = y_max - y_min
-    return join(x_min, y_min, W, H)
+    return merge(x_min, y_min, W, H)
 
 
 def xywh_to_xyxy(boxes):
     x_min, y_min, W, H = split(boxes)
     x_max = x_min + W
     y_max = y_min + H
-    boxes = join(x_min, y_min, x_max, y_max)
+    boxes = merge(x_min, y_min, x_max, y_max)
     return boxes
 
 
@@ -140,7 +144,7 @@ def flip_left_right(boxes, image_width):
         Numpy array of shape `(num_boxes, 4)`.
     """
     x_min, y_min, x_max, y_max = split(boxes)
-    return join(x_max, y_min, x_min, y_max)
+    return merge(x_max, y_min, x_min, y_max)
 
 
 def from_selection(image, radius=5, color=(255, 0, 0), window_name="image"):

@@ -1,3 +1,4 @@
+import colorsys
 import math
 import numpy as np
 import cv2
@@ -127,3 +128,20 @@ def mosaic(images, shape=None, border=0, background=255):
             :,
         ] = image
     return mosaic
+
+
+def lincolor(num_colors, saturation=0.75, value=1.0, normalize=False):
+    """Linearly spaced colors in HSV space"""
+    colors = []
+    hues = [value / num_colors for value in range(0, num_colors)]
+    for hue in hues:
+        rgb_color = colorsys.hsv_to_rgb(hue, saturation, value)
+        if normalize:
+            colors.append(rgb_color)
+        else:
+            r, g, b = rgb_color
+            R = int(255 * r)
+            G = int(255 * g)
+            B = int(255 * b)
+            colors.append((R, G, B))
+    return colors

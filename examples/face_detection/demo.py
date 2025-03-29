@@ -1,45 +1,32 @@
 import argparse
 import paz
-import jax.numpy as jp
-from paz.applications import HaarCascadeFaceDetector
-from paz.applications import HaarCascadeEyeDetector
-
-# from paz import Camera, VideoPlayer
+from paz.models.detection import HaarCascadeDetector
 
 parser = argparse.ArgumentParser(description="HaarCascadeDetector")
 parser.add_argument("--image_path", default=0, type=int)
 parser.add_argument("--camera", default=0, type=int)
 parser.add_argument("--H", default=480, type=int)
 parser.add_argument("--W", default=640, type=int)
+parser.add_argument("--models", nargs=2, default=["frontaface_default", "eye"])
 args = parser.parse_args()
 
 
-pipeline = HaarCascadeEyeDetector()
-pipeline = HaarCascadeFaceDetector()
+def Detector(labels, colors):
+    draw_functions = [paz.lock(paz.draw.boxes, color, 2) for color in colors]
 
-
-def FaceEyeDetector():
-    detect_face = HaarCascadeFaceDetector()
-    detect_eyes = HaarCascadeEyeDetector()
+    detectors = []
+    for class_arg, (label, draw) in enumerate(zip(labels, draw_functions)):
+        detectors.append(HaarCascadeDetector(label, 1.3, 5, class_arg, draw))
 
     def call(image):
-        face_detections = detect_face(image)
-        eyes_detections = detect_eyes(image)
-        boxes = jp.concatenate(
-            [face_detections.boxes, eyes_detections.boxes], axis=0
-        )
-        image = paz.draw.boxes(image, boxes)
-        return paz.NamedTuple("State", image=image, boxes=boxes)
+        boxes = paz.boxes.join([detect(image).boxes for detect in detectors])
+        return paz.message.Detections(image, boxes)
 
     return call
 
 
-# image = paz.Input("image")
-# x1 = paz.Node(HaarCascadeFaceDetector())(image)
-# x2 = paz.Node(HaarCascadeEyeDetector())(image)
-# paz.Node(lambda x: paz.draw.boxes(x.image, x.boxes, paz.draw.GREEN, 2))()
-# paz.Model(image, [])
-pipeline = FaceEyeDetector()
+colors = paz.draw.lincolor(len(args.models), normalize=False)
+pipeline = Detector(args.models, colors)
 camera = paz.Camera(args.camera)
 player = paz.VideoPlayer((args.H, args.W), pipeline, camera)
 player.run()
