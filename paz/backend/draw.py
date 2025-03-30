@@ -42,6 +42,7 @@ def box(image, box, color=GREEN, thickness=2):
 
 
 def boxes(image, boxes, color=GREEN, thickness=2):
+    image = np.ascontiguousarray(np.array(image, dtype=image.dtype))
     for box in boxes:
         image = paz.draw.box(image, box.tolist(), color, thickness)
     return image
