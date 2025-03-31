@@ -33,18 +33,12 @@ def square(boxes):
     x_min, y_min, x_max, y_max = split(boxes)
     center_x = (x_max + x_min) / 2.0
     center_y = (y_max + y_min) / 2.0
-    width = x_max - x_min
-    height = y_max - y_min
-
-    if height >= width:
-        half_box = height / 2.0
-        x_min = center_x - half_box
-        x_max = center_x + half_box
-
-    if width > height:
-        half_box = width / 2.0
-        y_min = center_y - half_box
-        y_max = center_y + half_box
+    W = x_max - x_min
+    H = y_max - y_min
+    x_min = jp.where(H >= W, center_x - (H / 2.0), x_min)
+    x_max = jp.where(H >= W, center_x + (H / 2.0), x_max)
+    y_min = jp.where(W > H, center_y - (W / 2.0), y_min)
+    y_max = jp.where(W > H, center_y + (W / 2.0), y_max)
     return merge(x_min, y_min, x_max, y_max).astype(int)
 
 

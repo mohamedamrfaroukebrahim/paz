@@ -23,7 +23,6 @@ def download(filename="deepfish.zip", gdrive_label=GDRIVE_LABEL):
 
 def parse_line(line):
     values = [float(value) for value in line.strip().split()]
-    # class_arg, x_min, y_min, x_max, y_max = values
     class_arg, x_center, y_center, box_W, box_H = values
     x_min = x_center - (box_W / 2)
     x_max = x_center + (box_W / 2)
@@ -55,10 +54,10 @@ if __name__ == "__main__":
     valid_images, valid_labels = load("Deepfish/", "validation")
     print("Total num images", len(train_images) + len(valid_images))
     for path, detections in zip(train_images, train_labels):
-        print(path)
         image = paz.image.load(path)
         image_boxes, class_args = paz.detection.split(detections)
         H, W = paz.image.get_dimensions(image)
         image_boxes = (image_boxes * jp.array([[W, H, W, H]])).astype(int)
+        image_boxes = paz.boxes.square(image_boxes)
         image = paz.draw.boxes(image, image_boxes)
         paz.image.show(image)
