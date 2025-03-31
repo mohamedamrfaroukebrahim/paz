@@ -21,7 +21,7 @@ def download(filename="deepfish.zip", gdrive_label=GDRIVE_LABEL):
     return filename
 
 
-def preprocess(line):
+def parse_line(line):
     values = [float(value) for value in line.strip().split()]
     class_arg, x_min, y_min, x_max, y_max = values
     return x_min, y_min, x_max, y_max, class_arg
@@ -30,7 +30,7 @@ def preprocess(line):
 def parse(filepath):
     boxes = []
     with open(filepath, "r") as file:
-        boxes.extend([preprocess(line) for line in file])
+        boxes.extend([parse_line(line) for line in file])
     return jp.array(boxes)
 
 
