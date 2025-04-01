@@ -1,5 +1,6 @@
 import importlib
 import jax.numpy as jp
+import jax
 import pytest
 from paz.backend.boxes import (
     apply_non_max_suppression,
@@ -9,6 +10,7 @@ from paz.backend.boxes import (
     encode,
     decode,
     compute_iou,
+    process_final_results,
 )
 
 
@@ -64,6 +66,24 @@ def test_encode_decode():
     encoded = encode(matched, priors)
     decoded = decode(encoded, priors)
     assert jp.allclose(decoded[:, :4], matched[:, :4], atol=1e-4)
+
+
+# Test the jitability of process_final_results
+def test_process_final_results_jitable():
+    count = jp.array(3)
+    dummy = jp.array(0)
+    indices = jp.arange(10, dtype=jp.int32)
+    final_state = (count, dummy, indices)
+    top_k = 5
+
+    jitted_func = jax.jit(process_final_results, static_argnums=(1,))
+
+    selected, num_selected = jitted_func(final_state, top_k)
+
+    assert num_selected == 3
+    assert selected.shape == (top_k,)
+    assert jp.array_equal(selected[:3], jp.array([0, 1, 2], dtype=jp.int32))
+    assert jp.all(selected[3:] == -1)
 
 
 # Test compute_ious
@@ -240,10 +260,7 @@ def test_flip_left_right():
 
 # Test to_image_coordinates and to_normalized_coordinates
 @pytest.mark.skipif(
-    not all(
-        importlib.util.find_spec(func)
-        for func in ["to_image_coordinates", "to_normalized_coordinates"]
-    ),
+    not all(importlib.util.find_spec(func) for func in ["to_image_coordinates", "to_normalized_coordinates"]),
     reason="requires both to_image_coordinates and to_normalized_coordinates",
 )
 def test_coordinate_conversions():
