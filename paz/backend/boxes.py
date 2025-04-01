@@ -4,23 +4,23 @@ from jax import lax
 import paz
 
 
-def split_into_components(boxes):
+def split(boxes):
     """Split boxes into x_min, y_min, x_max, y_max components."""
     return jp.split(boxes, 4, axis=1)
 
 
-def get_center_coordinates(x_minimum, x_maximum, y_minimum, y_maximum):
+def compute_centers(x_min, x_max, y_min, y_max):
     """Compute center coordinates of boxes."""
-    center_x = (x_maximum + x_minimum) / 2.0
-    center_y = (y_maximum + y_minimum) / 2.0
+    center_x = (x_max + x_min) / 2.0
+    center_y = (y_max + y_min) / 2.0
     return center_x, center_y
 
 
-def get_width_and_height(x_minimum, x_maximum, y_minimum, y_maximum):
+def compute_size(x_min, x_max, y_min, y_max):
     """Compute width and height from box corners."""
-    w = x_maximum - x_minimum
-    h = y_maximum - y_minimum
-    return w, h
+    W = x_max - x_min
+    H = y_max - y_min
+    return H, W
 
 
 def to_center_form(boxes):
@@ -32,9 +32,9 @@ def to_center_form(boxes):
     Returns:
         array: Boxes in center format [center_x, center_y, width, height]
     """
-    x_minimum, y_minimum, x_maximum, y_maximum = split_into_components(boxes)
-    center_x, center_y = get_center_coordinates(x_minimum, x_maximum, y_minimum, y_maximum)
-    W, H = get_width_and_height(x_minimum, x_maximum, y_minimum, y_maximum)
+    x_min, y_min, x_max, y_max = split(boxes)
+    center_x, center_y = compute_centers(x_min, x_max, y_min, y_max)
+    H, W = compute_size(x_min, x_max, y_min, y_max)
     return jp.concatenate([center_x, center_y, W, H], axis=1)
 
 
@@ -47,12 +47,12 @@ def to_corner_form(boxes):
     Returns:
         array: Boxes in corner format [x_min, y_min, x_max, y_max]
     """
-    center_x, center_y, W, H = split_into_components(boxes)
-    x_minimum = center_x - (W / 2.0)
-    x_maximum = center_x + (W / 2.0)
-    y_minimum = center_y - (H / 2.0)
-    y_maximum = center_y + (H / 2.0)
-    return jp.concatenate([x_minimum, y_minimum, x_maximum, y_maximum], axis=1)
+    center_x, center_y, W, H = split(boxes)
+    x_min = center_x - (W / 2.0)
+    x_max = center_x + (W / 2.0)
+    y_min = center_y - (H / 2.0)
+    y_max = center_y + (H / 2.0)
+    return jp.concatenate([x_min, y_min, x_max, y_max], axis=1)
 
 
 def pad(boxes, size, value=-1):
@@ -64,81 +64,60 @@ def pad(boxes, size, value=-1):
     return jp.pad(boxes, padding, "constant", constant_values=value)
 
 
-def order_xyxy(point_A, point_B):
-    """Order coordinates to form a valid bounding box."""
-    x1, y1 = point_A
-    x2, y2 = point_B
-    return min(x1, x2), min(y1, y2), max(x1, x2), max(y1, y2)
+def from_selection(image, radius=5, color=(255, 0, 0), window_name="image"):
+    """
+    Allows users to manually select bounding boxes by double-clicking on an image.
 
-
-def take_last_two_points(points):
-    """Retrieve the last two points from a list."""
-    return points[-1], points[-2]
-
-
-def draw_circle_and_store_point(image, points, x, y, radius, color):
-    """Draw a circle on image and store the point."""
-    paz.draw.circle(image, (x, y), radius, color)
-    points.append((x, y))
-
-
-def process_pair_of_points(image, points, boxes, color, radius):
-    """Process two points to form a box and draw it."""
-    point_A, point_B = take_last_two_points(points)
-    box = order_xyxy(point_A, point_B)
-    paz.draw.box(image, box, color, radius)
-    boxes.append(box)
-
-
-def on_double_click_event(event, x, y, flags, param, image, points, boxes, radius, color):
-    """Handle double-click event to draw points and boxes."""
-    if event == cv2.EVENT_LBUTTONDBLCLK:
-        draw_circle_and_store_point(image, points, x, y, radius, color)
-        if len(points) % 2 == 0:
-            process_pair_of_points(image, points, boxes, color, radius)
-
-
-def create_on_double_click(image, points, boxes, radius, color):
-    """Create a mouse callback function for double clicks."""
-
-    def on_double_click(event, x, y, flags, param):
-        on_double_click_event(event, x, y, flags, param, image, points, boxes, radius, color)
-
-    return on_double_click
-
-
-def setup_window_and_callback(image, points, boxes, radius, color, window_name):
-    """Set up the window and mouse callback for box selection."""
-    on_double_click = create_on_double_click(image, points, boxes, radius, color)
-    cv2.namedWindow(window_name)
-    cv2.setMouseCallback(window_name, on_double_click)
-
-
-def key_is_pressed(key="q", time=20):
-    """Check if a specific key is pressed."""
-    return cv2.waitKey(time) & 0xFF == ord(key)
-
-
-def run_event_loop(image, window_name):
-    """Run the main event loop for displaying the image and handling key presses.
+    This function enables interactive selection of bounding boxes on an image by
+    double-clicking on two points. It records the coordinates and draws boxes accordingly.
 
     Args:
-        image (array): The image to display
-        window_name (str): Name of the display window
+        image (numpy.ndarray): The image on which selections are made.
+        radius (int, optional): The radius of the selection points. Defaults to 5.
+        color (tuple, optional): The color of the points and bounding boxes in (B, G, R) format. Defaults to (255, 0, 0).
+        window_name (str, optional): The name of the OpenCV window displaying the image. Defaults to "image".
 
     Returns:
-        None
+        numpy.ndarray: An array of bounding boxes in (x1, y1, x2, y2) format.
+
+    Notes:
+        - The function waits for user interaction.
+        - Users can create bounding boxes by double-clicking two points.
+        - Press 'q' to exit the selection process.
     """
+    points, boxes = [], []
+
+    def order_xyxy(point_A, point_B):
+        (x1, y1) = point_A
+        (x2, y2) = point_B
+        return min(x1, x2), min(y1, y2), max(x1, x2), max(y1, y2)
+
+    def take_last_two_points(points):
+        point_A = points[-1]
+        point_B = points[-2]
+        return point_A, point_B
+
+    def on_double_click(event, x, y, flags, param):
+        if event == cv2.EVENT_LBUTTONDBLCLK:
+            paz.draw.circle(image, (x, y), radius, color)
+            points.append((x, y))
+            if len(points) % 2 == 0:
+                point_A, point_B = take_last_two_points(points)
+                box = order_xyxy(point_A, point_B)
+                paz.draw.box(image, box, color, radius)
+                boxes.append(box)
+
+    def key_is_pressed(key="q", time=20):
+        return cv2.waitKey(time) & 0xFF == ord(key)
+
+    cv2.namedWindow(window_name)
+    cv2.setMouseCallback(window_name, on_double_click)
     while True:
         paz.image.show(image, window_name, False)
         if key_is_pressed("q"):
             break
     cv2.destroyWindow(window_name)
-
-
-def convert_to_center_form(matched_boxes):
-    """Convert matched boxes to center form."""
-    return to_center_form(matched_boxes[:, :4])
+    return jp.array(boxes)
 
 
 def encode_center_coordinates(boxes, priors, variances):
@@ -175,7 +154,7 @@ def encode(matched, priors, variances=[0.1, 0.1, 0.2, 0.2]):
     Returns:
         array: Encoded box parameters
     """
-    boxes_center = convert_to_center_form(matched)
+    boxes_center = to_center_form(matched[:, :4])
     extras = matched[:, 4:]
     encoded_x, encoded_y = encode_center_coordinates(boxes_center, priors, variances)
     encoded_w, encoded_h = encode_dimensions(boxes_center, priors, variances)
@@ -192,12 +171,12 @@ def decode_center_y(predictions, priors, variances):
     return predictions[:, 1:2] * priors[:, 3:4] * variances[1] + priors[:, 1:2]
 
 
-def decode_width(predictions, priors, variances):
+def decode_W(predictions, priors, variances):
     """Decode width from predictions."""
     return priors[:, 2:3] * jp.exp(predictions[:, 2:3] * variances[2])
 
 
-def decode_height(predictions, priors, variances):
+def decode_H(predictions, priors, variances):
     """Decode height from predictions."""
     return priors[:, 3:4] * jp.exp(predictions[:, 3:4] * variances[3])
 
@@ -206,8 +185,8 @@ def compute_boxes_center(predictions, priors, variances):
     """Compute center-form boxes from predictions."""
     center_x = decode_center_x(predictions, priors, variances)
     center_y = decode_center_y(predictions, priors, variances)
-    W = decode_width(predictions, priors, variances)
-    H = decode_height(predictions, priors, variances)
+    W = decode_W(predictions, priors, variances)
+    H = decode_H(predictions, priors, variances)
     return jp.concatenate([center_x, center_y, W, H], axis=1)
 
 
@@ -237,23 +216,23 @@ def decode(predictions, priors, variances=[0.1, 0.1, 0.2, 0.2]):
     return combine_with_extras(boxes_corner, predictions)
 
 
-def get_best_box_coords(best_idx, x_minimum, x_maximum, y_minimum, y_maximum):
+def get_best_box_coords(best_idx, x_min, x_max, y_min, y_max):
     """Retrieve coordinates of the best box."""
-    best_xmin = x_minimum[best_idx]
-    best_ymin = y_minimum[best_idx]
-    best_xmax = x_maximum[best_idx]
-    best_ymax = y_maximum[best_idx]
+    best_xmin = x_min[best_idx]
+    best_ymin = y_min[best_idx]
+    best_xmax = x_max[best_idx]
+    best_ymax = y_max[best_idx]
     return best_xmin, best_ymin, best_xmax, best_ymax
 
 
-def compute_intersection_coords(x_minimum, y_minimum, x_maximum, y_maximum, best_coords):
+def compute_intersection_coords(x_min, y_min, x_max, y_max, best_coords):
     """Compute intersection coordinates between boxes."""
     best_xmin, best_ymin, best_xmax, best_ymax = best_coords
     return (
-        jp.maximum(x_minimum, best_xmin),
-        jp.maximum(y_minimum, best_ymin),
-        jp.minimum(x_maximum, best_xmax),
-        jp.minimum(y_maximum, best_ymax),
+        jp.maximum(x_min, best_xmin),
+        jp.maximum(y_min, best_ymin),
+        jp.minimum(x_max, best_xmax),
+        jp.minimum(y_max, best_ymax),
     )
 
 
@@ -270,10 +249,10 @@ def compute_union(areas, best_idx, intersection):
     return areas + areas[best_idx] - intersection
 
 
-def calculate_IoU_with_best_box(x_minimum, x_maximum, y_minimum, y_maximum, best_idx, areas):
+def calculate_IoU_with_best_box(x_min, x_max, y_min, y_max, best_idx, areas):
     """Calculate IoU between boxes and the best box."""
-    best_coords = get_best_box_coords(best_idx, x_minimum, x_maximum, y_minimum, y_maximum)
-    intersection_coords = compute_intersection_coords(x_minimum, y_minimum, x_maximum, y_maximum, best_coords)
+    best_coords = get_best_box_coords(best_idx, x_min, x_max, y_min, y_max)
+    intersection_coords = compute_intersection_coords(x_min, y_min, x_max, y_max, best_coords)
     intersection = compute_intersection_area(intersection_coords)
     union = compute_union(areas, best_idx, intersection)
     return intersection / union
@@ -300,25 +279,21 @@ def update_indices(indices, i, best_idx):
     return updated_indices
 
 
-def apply_NMS_iteration(
-    x_minimum, y_minimum, x_maximum, y_maximum, areas, IoU_thresh, scores, index, indices
-):
+def apply_NMS_iteration(x_min, y_min, x_max, y_max, areas, IoU_thresh, scores, index, indices):
     """Perform one iteration of NMS processing."""
     best_idx = get_best_idx(scores)
     indices = update_indices(indices, index, best_idx)
-    IoU = calculate_IoU_with_best_box(x_minimum, x_maximum, y_minimum, y_maximum, best_idx, areas)
+    IoU = calculate_IoU_with_best_box(x_min, x_max, y_min, y_max, best_idx, areas)
     scores = _suppress_overlapping_boxes(best_idx, IoU, scores, IoU_thresh)
     return (index + 1, scores, indices)
 
 
-def create_step_function(x_minimum, y_minimum, x_maximum, y_maximum, areas, IoU_thresh):
+def create_step_function(x_min, y_min, x_max, y_max, areas, IoU_thresh):
     """Create step function for NMS loop."""
 
     def step(state):
         index, scores, indices = state
-        return apply_NMS_iteration(
-            x_minimum, y_minimum, x_maximum, y_maximum, areas, IoU_thresh, scores, index, indices
-        )
+        return apply_NMS_iteration(x_min, y_min, x_max, y_max, areas, IoU_thresh, scores, index, indices)
 
     return step
 
@@ -332,12 +307,12 @@ def handle_empty_case(boxes, scores):
 
 def compute_geometric_features(boxes):
     """Compute geometric features (x_min, etc.) from boxes."""
-    x_minimum = boxes[:, 0]
-    y_minimum = boxes[:, 1]
-    x_maximum = boxes[:, 2]
-    y_maximum = boxes[:, 3]
-    areas = (x_maximum - x_minimum) * (y_maximum - y_minimum)
-    return x_minimum, y_minimum, x_maximum, y_maximum, areas
+    x_min = boxes[:, 0]
+    y_min = boxes[:, 1]
+    x_max = boxes[:, 2]
+    y_max = boxes[:, 3]
+    areas = (x_max - x_min) * (y_max - y_min)
+    return x_min, y_min, x_max, y_max, areas
 
 
 def initialize_NMS_state(scores, top_k):
@@ -357,10 +332,26 @@ def run_NMS_loop(condition_fn, step_fn, init_state):
 
 
 def process_final_results(final_state, top_k):
-    """Process final NMS results to get selected indices."""
+    """Process final NMS results to get selected indices.
+
+    Args:
+        final_state: Tuple of (count, _, indices) where:
+            - count: the number of valid indices (scalar)
+            - indices: a 1D array of candidate indices.
+        top_k: Maximum number of indices to select (must be a static value).
+
+    Returns:
+        A tuple (selected, num_selected) where:
+            - selected: a 1D array of shape (top_k,) containing the valid indices in the
+              first num_selected positions and padded with -1.
+            - num_selected: the number of valid indices.
+    """
     count, _, indices = final_state
     num_selected = jp.minimum(count, top_k)
-    selected = lax.dynamic_slice(indices, (0,), (num_selected,))
+    candidate = indices[:top_k]
+    mask = jp.arange(top_k) < num_selected
+    selected = jp.where(mask, candidate, -1)
+
     return selected, num_selected
 
 
@@ -504,36 +495,43 @@ def NMS_per_class(box_data, NMS_thresh=0.45, confidence_thresh=0.01, top_k=200):
 
 def get_boxes_coordinates_to_compute_IoU(box, boxes):
     """Get coordinates for IoU computation between a box and others."""
-    x_minimum_A, y_minimum_A, x_maximum_A, y_maximum_A = box[:4]
-    x_minimum_B, y_minimum_B = boxes[:, 0], boxes[:, 1]
-    x_maximum_B, y_maximum_B = boxes[:, 2], boxes[:, 3]
-    return (x_minimum_A, y_minimum_A, x_maximum_A, y_maximum_A,
-            x_minimum_B, y_minimum_B, x_maximum_B, y_maximum_B,)
+    x_min_A, y_min_A, x_max_A, y_max_A = box[:4]
+    x_min_B, y_min_B = boxes[:, 0], boxes[:, 1]
+    x_max_B, y_max_B = boxes[:, 2], boxes[:, 3]
+    return (
+        x_min_A,
+        y_min_A,
+        x_max_A,
+        y_max_A,
+        x_min_B,
+        y_min_B,
+        x_max_B,
+        y_max_B,
+    )
 
 
-def get_inner_coordinates(
-    x_minimum_A, y_minimum_A, x_maximum_A, y_maximum_A, x_minimum_B, y_minimum_B, x_maximum_B, y_maximum_B
-):
+def get_inner_coordinates(x_min_A, y_min_A, x_max_A, y_max_A, x_min_B, y_min_B, x_max_B, y_max_B):
     """Compute inner coordinates for intersection area."""
-    inner_x_minimum = jp.maximum(x_minimum_B, x_minimum_A)
-    inner_y_minimum = jp.maximum(y_minimum_B, y_minimum_A)
-    inner_x_maximum = jp.minimum(x_maximum_B, x_maximum_A)
-    inner_y_maximum = jp.minimum(y_maximum_B, y_maximum_A)
-    return inner_x_minimum, inner_y_minimum, inner_x_maximum, inner_y_maximum
+    inner_x_min = jp.maximum(x_min_B, x_min_A)
+    inner_y_min = jp.maximum(y_min_B, y_min_A)
+    inner_x_max = jp.minimum(x_max_B, x_max_A)
+    inner_y_max = jp.minimum(y_max_B, y_max_A)
+    return inner_x_min, inner_y_min, inner_x_max, inner_y_max
 
 
-def calculate_intersection(inner_x_minimum, inner_y_minimum, inner_x_maximum, inner_y_maximum):
+def calculate_intersection(inner_x_min, inner_y_min, inner_x_max, inner_y_max):
     """Calculate intersection area between two boxes."""
-    inner_w = jp.maximum((inner_x_maximum - inner_x_minimum), 0)
-    inner_h = jp.maximum((inner_y_maximum - inner_y_minimum), 0)
+    inner_w = jp.maximum((inner_x_max - inner_x_min), 0)
+    inner_h = jp.maximum((inner_y_max - inner_y_min), 0)
     return inner_w * inner_h
 
 
-def calculate_union(x_minimum_A, y_minimum_A, x_maximum_A, y_maximum_A, x_minimum_B,
-                    y_minimum_B, x_maximum_B, y_maximum_B, intersection_area):
+def calculate_union(
+    x_min_A, y_min_A, x_max_A, y_max_A, x_min_B, y_min_B, x_max_B, y_max_B, intersection_area
+):
     """Calculate union area of two boxes."""
-    box_area_B = (x_maximum_B - x_minimum_B) * (y_maximum_B - y_minimum_B)
-    box_area_A = (x_maximum_A - x_minimum_A) * (y_maximum_A - y_minimum_A)
+    box_area_B = (x_max_B - x_min_B) * (y_max_B - y_min_B)
+    box_area_A = (x_max_A - x_min_A) * (y_max_A - y_min_A)
     union_area = box_area_A + box_area_B - intersection_area
     return union_area
 

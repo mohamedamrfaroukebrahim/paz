@@ -26,12 +26,11 @@ def filter_boxes_and_labels(boxes, labels, crop_region):
     Returns:
         tuple: Filtered (boxes, labels) arrays.
     """
-    mask = (
-        (boxes[:, 0] < crop_region[2])
-        & (boxes[:, 1] < crop_region[3])
-        & (boxes[:, 2] > crop_region[0])
-        & (boxes[:, 3] > crop_region[1])
-    )
+    crop_xmin, crop_ymin, crop_xmax, crop_ymax = crop_region
+    x_min, y_min, x_max, y_max = boxes[:, 0], boxes[:, 1], boxes[:, 2], boxes[:, 3]
+
+    mask = (x_min < crop_xmax) & (y_min < crop_ymax) & (x_max > crop_xmin) & (y_max > crop_ymin)
+
     return boxes[mask], labels[mask]
 
 
@@ -395,8 +394,9 @@ def random_sample_crop(key, image, boxes, probability, max_trials, IoU_threshold
     labels, bounding_boxes, IoU_mode = extract_boxes_and_labels(key, boxes, IoU_thresholds)
     if (not apply_crop) or (IoU_thresholds[IoU_mode] is None):
         return image, boxes
-    return attempt_crop_with_IoU(key, image, labels, bounding_boxes,
-                                 max_trials, IoU_thresholds[IoU_mode], boxes)
+    return attempt_crop_with_IoU(
+        key, image, labels, bounding_boxes, max_trials, IoU_thresholds[IoU_mode], boxes
+    )
 
 
 def create_jaccard_thresholds():
