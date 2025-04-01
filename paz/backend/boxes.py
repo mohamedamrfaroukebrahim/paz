@@ -9,15 +9,17 @@ def split(boxes):
     return jp.split(boxes, 4, axis=1)
 
 
-def compute_centers(x_min, x_max, y_min, y_max):
+def compute_centers(boxes):
     """Compute center coordinates of boxes."""
+    x_min, y_min, x_max, y_max = split(boxes)
     center_x = (x_max + x_min) / 2.0
     center_y = (y_max + y_min) / 2.0
     return center_x, center_y
 
 
-def compute_size(x_min, x_max, y_min, y_max):
-    """Compute width and height from box corners."""
+def compute_size(boxes):
+    """Compute width and height from boxes in corner format [x_min, y_min, x_max, y_max]."""
+    x_min, y_min, x_max, y_max = split(boxes)
     W = x_max - x_min
     H = y_max - y_min
     return H, W
@@ -32,9 +34,8 @@ def to_center_form(boxes):
     Returns:
         array: Boxes in center format [center_x, center_y, width, height]
     """
-    x_min, y_min, x_max, y_max = split(boxes)
-    center_x, center_y = compute_centers(x_min, x_max, y_min, y_max)
-    H, W = compute_size(x_min, x_max, y_min, y_max)
+    center_x, center_y = compute_centers(boxes)
+    H, W = compute_size(boxes)
     return jp.concatenate([center_x, center_y, W, H], axis=1)
 
 
@@ -244,7 +245,7 @@ def compute_intersection_area(intersection_coords):
     return w * h
 
 
-def compute_union(areas, best_idx, intersection):
+def compute_union_area(areas, best_idx, intersection):
     """Compute union area of two boxes."""
     return areas + areas[best_idx] - intersection
 
@@ -254,7 +255,7 @@ def calculate_IoU_with_best_box(x_min, x_max, y_min, y_max, best_idx, areas):
     best_coords = get_best_box_coords(best_idx, x_min, x_max, y_min, y_max)
     intersection_coords = compute_intersection_coords(x_min, y_min, x_max, y_max, best_coords)
     intersection = compute_intersection_area(intersection_coords)
-    union = compute_union(areas, best_idx, intersection)
+    union = compute_union_area(areas, best_idx, intersection)
     return intersection / union
 
 
@@ -519,16 +520,14 @@ def get_inner_coordinates(x_min_A, y_min_A, x_max_A, y_max_A, x_min_B, y_min_B, 
     return inner_x_min, inner_y_min, inner_x_max, inner_y_max
 
 
-def calculate_intersection(inner_x_min, inner_y_min, inner_x_max, inner_y_max):
+def compute_intersection(inner_x_min, inner_y_min, inner_x_max, inner_y_max):
     """Calculate intersection area between two boxes."""
     inner_w = jp.maximum((inner_x_max - inner_x_min), 0)
     inner_h = jp.maximum((inner_y_max - inner_y_min), 0)
     return inner_w * inner_h
 
 
-def calculate_union(
-    x_min_A, y_min_A, x_max_A, y_max_A, x_min_B, y_min_B, x_max_B, y_max_B, intersection_area
-):
+def compute_union(x_min_A, y_min_A, x_max_A, y_max_A, x_min_B, y_min_B, x_max_B, y_max_B, intersection_area):
     """Calculate union area of two boxes."""
     box_area_B = (x_max_B - x_min_B) * (y_max_B - y_min_B)
     box_area_A = (x_max_A - x_min_A) * (y_max_A - y_min_A)
@@ -548,6 +547,6 @@ def compute_iou(box, boxes):
     """
     coordinates = get_boxes_coordinates_to_compute_IoU(box, boxes)
     inner_coordinates = get_inner_coordinates(*coordinates)
-    intersection_area = calculate_intersection(*inner_coordinates)
-    union_area = calculate_union(*coordinates, intersection_area)
+    intersection_area = compute_intersection(*inner_coordinates)
+    union_area = compute_union(*coordinates, intersection_area)
     return intersection_area / union_area
