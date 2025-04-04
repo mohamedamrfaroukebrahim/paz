@@ -74,22 +74,6 @@ def pad(boxes, size, value=-1):
     return jp.pad(boxes, padding, "constant", constant_values=value)
 
 
-def pad_data(boxes, size, value=-1):
-    """Pads list of boxes with a given.
-
-    # Arguments
-        boxes: List of size `(num_samples)` containing boxes as lists.
-
-    # Returns
-        boxes with shape `(num_samples, size, 4)`
-    """
-    padded_elements = []
-    for sample in boxes:
-        padded_element = pad(jp.array(sample), size, value)
-        padded_elements.append(padded_element)
-    return jp.array(padded_elements)
-
-
 def from_selection(image, radius=5, color=(255, 0, 0), window_name="image"):
     """
     Allows users to manually select bounding boxes by double-clicking on an image.
