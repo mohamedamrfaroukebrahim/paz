@@ -15,13 +15,19 @@ def merge(coordinate_0, coordinate_1, coordinate_2, coordinate_3):
     )
 
 
+def compute_area(boxes):
+    x_min, y_min, x_max, y_max = split(boxes)
+    W = x_max - x_min
+    H = y_max - y_min
+    return W * H
+
+
 def join(boxes):
     return jp.concatenate(boxes, axis=0)
 
 
 def square(boxes):
-    """Makes box coordinates square with sides equal to the longest
-        original side.
+    """Makes boxes square with sides equal to the longest original side.
 
     # Arguments
         box: Numpy array with shape `(4)` with point corner coordinates.
@@ -29,16 +35,16 @@ def square(boxes):
     # Returns
         returns: List of box coordinates ints.
     """
-    # TODO add ``calculate_center`` ``calculate_side_dimensions`` functions.
+    # TODO missing with edge cases
     x_min, y_min, x_max, y_max = split(boxes)
     center_x = (x_max + x_min) / 2.0
     center_y = (y_max + y_min) / 2.0
-    W = x_max - x_min
-    H = y_max - y_min
-    x_min = jp.where(H >= W, center_x - (H / 2.0), x_min)
-    x_max = jp.where(H >= W, center_x + (H / 2.0), x_max)
-    y_min = jp.where(W > H, center_y - (W / 2.0), y_min)
-    y_max = jp.where(W > H, center_y + (W / 2.0), y_max)
+    boxes_W = x_max - x_min
+    boxes_H = y_max - y_min
+    x_min = jp.where(boxes_H >= boxes_W, center_x - (boxes_H / 2.0), x_min)
+    x_max = jp.where(boxes_H >= boxes_W, center_x + (boxes_H / 2.0), x_max)
+    y_min = jp.where(boxes_H >= boxes_W, y_min, center_y - (boxes_W / 2.0))
+    y_max = jp.where(boxes_H >= boxes_W, y_max, center_y + (boxes_W / 2.0))
     return merge(x_min, y_min, x_max, y_max).astype(int)
 
 
