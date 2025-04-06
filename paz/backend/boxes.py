@@ -4,9 +4,13 @@ from jax import lax
 import paz
 
 
-def split(boxes):
+def split(boxes, keepdims=True, axis=1):
     """Split boxes into x_min, y_min, x_max, y_max components."""
-    return jp.split(boxes, 4, axis=1)
+    coordinates = jp.split(boxes, 4, axis=axis)
+    if keepdims:
+        return coordinates
+    else:
+        return tuple(jp.squeeze(column, axis=-1) for column in coordinates)
 
 
 def compute_centers(boxes):
@@ -18,13 +22,12 @@ def compute_centers(boxes):
 
 
 def merge(coordinate_0, coordinate_1, coordinate_2, coordinate_3):
-    return jp.concatenate(
-        [coordinate_0, coordinate_1, coordinate_2, coordinate_3], axis=1
-    )
+    coordinates = [coordinate_0, coordinate_1, coordinate_2, coordinate_3]
+    return jp.concatenate(coordinates, axis=1)
 
 
-def compute_area(boxes):
-    x_min, y_min, x_max, y_max = split(boxes)
+def compute_areas(boxes, keepdims=True):
+    x_min, y_min, x_max, y_max = split(boxes, keepdims=keepdims)
     W = x_max - x_min
     H = y_max - y_min
     return W * H
@@ -43,7 +46,6 @@ def square(boxes):
     # Returns
         returns: List of box coordinates ints.
     """
-    # TODO missing with edge cases
     x_min, y_min, x_max, y_max = split(boxes)
     center_x = (x_max + x_min) / 2.0
     center_y = (y_max + y_min) / 2.0
@@ -57,7 +59,7 @@ def square(boxes):
 
 
 def compute_size(boxes):
-    """Compute width and height from boxes in corner format [x_min, y_min, x_max, y_max]."""
+    """Compute width and height from boxes in corner format."""
     x_min, y_min, x_max, y_max = split(boxes)
     W = x_max - x_min
     H = y_max - y_min
@@ -67,10 +69,10 @@ def compute_size(boxes):
 def to_center_form(boxes):
     """Convert bounding boxes from corner to center form.
 
-    Args:
+    # Arguments:
         boxes (array): Boxes in corner format [x_min, y_min, x_max, y_max]
 
-    Returns:
+    # Returns:
         array: Boxes in center format [center_x, center_y, width, height]
     """
     center_x, center_y = compute_centers(boxes)
@@ -81,11 +83,11 @@ def to_center_form(boxes):
 def to_corner_form(boxes):
     """Convert bounding boxes from center to corner form.
 
-    Args:
-        boxes (array): Boxes in center format [center_x, center_y, width, height]
+    # Arguments:
+        Boxes: Array of boxes in center format ``[center_x, center_y, W, H]``.
 
-    Returns:
-        array: Boxes in corner format [x_min, y_min, x_max, y_max]
+    # Returns:
+        Boxes in corner format ``[x_min, y_min, x_max, y_max]``.
     """
     center_x, center_y, W, H = split(boxes)
     x_min = center_x - (W / 2.0)
@@ -98,12 +100,12 @@ def to_corner_form(boxes):
 def pad(boxes, size, value=-1):
     """Pad boxes array to specified size with value.
 
-    Args:
+    # Arguments:
         boxes (Array): `(num_boxes, 4)` array of box coordinates.
         size (int): target size for padding.
         value (int): Value to pad with.
 
-    Returns:
+    # Returns:
         Padded boxes with shape `(size, 4)`.
     """
     num_boxes = len(boxes)
@@ -114,11 +116,7 @@ def pad(boxes, size, value=-1):
 
 
 def from_selection(image, radius=5, color=(255, 0, 0), window_name="image"):
-    """
-    Allows users to manually select bounding boxes by double-clicking on an image.
-
-    This function enables interactive selection of bounding boxes on an image by
-    double-clicking on two points. It records the coordinates and draws boxes accordingly.
+    """Manually select bounding boxes by double-clicking on an image.
 
     Args:
         image (array): The image on which selections are made.
@@ -187,9 +185,13 @@ def encode_dimensions(boxes, priors, variances):
     return encoded_width, encoded_height
 
 
-def concatenate_encoded_boxes(encoded_x, encoded_y, encoded_w, encoded_h, extras):
+def concatenate_encoded_boxes(
+    encoded_x, encoded_y, encoded_w, encoded_h, extras
+):
     """Concatenate encoded box parameters with extras."""
-    return jp.concatenate([encoded_x, encoded_y, encoded_w, encoded_h, extras], axis=1)
+    return jp.concatenate(
+        [encoded_x, encoded_y, encoded_w, encoded_h, extras], axis=1
+    )
 
 
 def encode(matched, priors, variances=[0.1, 0.1, 0.2, 0.2]):
@@ -205,9 +207,13 @@ def encode(matched, priors, variances=[0.1, 0.1, 0.2, 0.2]):
     """
     boxes_center = to_center_form(matched[:, :4])
     extras = matched[:, 4:]
-    encoded_x, encoded_y = encode_center_coordinates(boxes_center, priors, variances)
+    encoded_x, encoded_y = encode_center_coordinates(
+        boxes_center, priors, variances
+    )
     encoded_w, encoded_h = encode_dimensions(boxes_center, priors, variances)
-    return concatenate_encoded_boxes(encoded_x, encoded_y, encoded_w, encoded_h, extras)
+    return concatenate_encoded_boxes(
+        encoded_x, encoded_y, encoded_w, encoded_h, extras
+    )
 
 
 def decode_center_x(predictions, priors, variances):
@@ -301,7 +307,9 @@ def compute_union_area(areas, best_idx, intersection):
 def calculate_IoU_with_best_box(x_min, x_max, y_min, y_max, best_idx, areas):
     """Calculate IoU between boxes and the best box."""
     best_coords = get_best_box_coords(best_idx, x_min, x_max, y_min, y_max)
-    intersection_coords = compute_intersection_coords(x_min, y_min, x_max, y_max, best_coords)
+    intersection_coords = compute_intersection_coords(
+        x_min, y_min, x_max, y_max, best_coords
+    )
     intersection = compute_intersection_area(intersection_coords)
     union = compute_union_area(areas, best_idx, intersection)
     return intersection / union
@@ -328,11 +336,15 @@ def update_indices(indices, i, best_idx):
     return updated_indices
 
 
-def apply_NMS_iteration(x_min, y_min, x_max, y_max, areas, IoU_thresh, scores, index, indices):
+def apply_NMS_iteration(
+    x_min, y_min, x_max, y_max, areas, IoU_thresh, scores, index, indices
+):
     """Perform one iteration of NMS processing."""
     best_idx = get_best_idx(scores)
     indices = update_indices(indices, index, best_idx)
-    IoU = calculate_IoU_with_best_box(x_min, x_max, y_min, y_max, best_idx, areas)
+    IoU = calculate_IoU_with_best_box(
+        x_min, x_max, y_min, y_max, best_idx, areas
+    )
     scores = _suppress_overlapping_boxes(best_idx, IoU, scores, IoU_thresh)
     return (index + 1, scores, indices)
 
@@ -342,7 +354,17 @@ def create_step_function(x_min, y_min, x_max, y_max, areas, IoU_thresh):
 
     def step(state):
         index, scores, indices = state
-        return apply_NMS_iteration(x_min, y_min, x_max, y_max, areas, IoU_thresh, scores, index, indices)
+        return apply_NMS_iteration(
+            x_min,
+            y_min,
+            x_max,
+            y_max,
+            areas,
+            IoU_thresh,
+            scores,
+            index,
+            indices,
+        )
 
     return step
 
@@ -426,8 +448,12 @@ def run_and_process(condition_fn, step_fn, init_state, top_k):
 
 def execute_NMS_pipeline(boxes, scores, IoU_thresh, top_k):
     """Execute the NMS pipeline steps."""
-    geometric_features, init_state = compute_features_and_state(boxes, scores, top_k)
-    step_fn, condition_fn = create_NMS_functions(geometric_features, IoU_thresh, top_k)
+    geometric_features, init_state = compute_features_and_state(
+        boxes, scores, top_k
+    )
+    step_fn, condition_fn = create_NMS_functions(
+        geometric_features, IoU_thresh, top_k
+    )
     return run_and_process(condition_fn, step_fn, init_state, top_k)
 
 
@@ -480,7 +506,9 @@ def apply_nms_and_prepare(boxes, scores, NMS_thresh, top_k):
     return prepare_selections(boxes, scores, indices, count)
 
 
-def process_class(decoded_boxes, class_scores, NMS_thresh, confidence_thresh, top_k):
+def process_class(
+    decoded_boxes, class_scores, NMS_thresh, confidence_thresh, top_k
+):
     filtered = filter_boxes(decoded_boxes, class_scores, confidence_thresh)
     if filtered is None:
         return None
@@ -491,17 +519,36 @@ def process_class(decoded_boxes, class_scores, NMS_thresh, confidence_thresh, to
 def pad_selection(selection, top_k):
     """Pad selected boxes to fixed size."""
     pad_len = top_k - selection.shape[0]
-    return jp.concatenate([selection, jp.zeros((pad_len, 5))], axis=0) if pad_len > 0 else selection[:top_k]
+    return (
+        jp.concatenate([selection, jp.zeros((pad_len, 5))], axis=0)
+        if pad_len > 0
+        else selection[:top_k]
+    )
 
 
-def process_class_output(class_arg, decoded_boxes, class_predictions, NMS_thresh, confidence_thresh, top_k):
+def process_class_output(
+    class_arg,
+    decoded_boxes,
+    class_predictions,
+    NMS_thresh,
+    confidence_thresh,
+    top_k,
+):
     """Process class predictions and return padded outputs."""
     if class_arg == 0:
         return jp.zeros((top_k, 5))
     selection = process_class(
-        decoded_boxes, class_predictions[:, class_arg], NMS_thresh, confidence_thresh, top_k
+        decoded_boxes,
+        class_predictions[:, class_arg],
+        NMS_thresh,
+        confidence_thresh,
+        top_k,
     )
-    return jp.zeros((top_k, 5)) if selection is None else pad_selection(selection, top_k)
+    return (
+        jp.zeros((top_k, 5))
+        if selection is None
+        else pad_selection(selection, top_k)
+    )
 
 
 def decode_box_data(box_data):
@@ -511,12 +558,24 @@ def decode_box_data(box_data):
     return decoded_boxes, class_predictions
 
 
-def create_outputs(num_classes, decoded_boxes, class_predictions, NMS_thresh, confidence_thresh, top_k):
+def create_outputs(
+    num_classes,
+    decoded_boxes,
+    class_predictions,
+    NMS_thresh,
+    confidence_thresh,
+    top_k,
+):
     """Create outputs for each class after NMS."""
     outputs = []
     for i in range(num_classes):
         output = process_class_output(
-            i, decoded_boxes, class_predictions, NMS_thresh, confidence_thresh, top_k
+            i,
+            decoded_boxes,
+            class_predictions,
+            NMS_thresh,
+            confidence_thresh,
+            top_k,
         )
         outputs.append(output)
     return outputs
@@ -537,7 +596,12 @@ def NMS_per_class(box_data, NMS_thresh=0.45, confidence_thresh=0.01, top_k=200):
     decoded_boxes, class_predictions = decode_box_data(box_data)
     num_classes = class_predictions.shape[1]
     outputs = create_outputs(
-        num_classes, decoded_boxes, class_predictions, NMS_thresh, confidence_thresh, top_k
+        num_classes,
+        decoded_boxes,
+        class_predictions,
+        NMS_thresh,
+        confidence_thresh,
+        top_k,
     )
     return jp.stack(outputs, axis=0)
 
@@ -559,7 +623,9 @@ def get_boxes_coordinates_to_compute_IoU(box, boxes):
     )
 
 
-def get_inner_coordinates(x_min_A, y_min_A, x_max_A, y_max_A, x_min_B, y_min_B, x_max_B, y_max_B):
+def get_inner_coordinates(
+    x_min_A, y_min_A, x_max_A, y_max_A, x_min_B, y_min_B, x_max_B, y_max_B
+):
     """Compute inner coordinates for intersection area."""
     inner_x_min = jp.maximum(x_min_B, x_min_A)
     inner_y_min = jp.maximum(y_min_B, y_min_A)
@@ -575,7 +641,17 @@ def compute_intersection(inner_x_min, inner_y_min, inner_x_max, inner_y_max):
     return inner_w * inner_h
 
 
-def compute_union(x_min_A, y_min_A, x_max_A, y_max_A, x_min_B, y_min_B, x_max_B, y_max_B, intersection_area):
+def compute_union(
+    x_min_A,
+    y_min_A,
+    x_max_A,
+    y_max_A,
+    x_min_B,
+    y_min_B,
+    x_max_B,
+    y_max_B,
+    intersection_area,
+):
     """Calculate union area of two boxes."""
     box_area_B = (x_max_B - x_min_B) * (y_max_B - y_min_B)
     box_area_A = (x_max_A - x_min_A) * (y_max_A - y_min_A)
