@@ -1,4 +1,3 @@
-from collections import namedtuple
 from keras.utils import get_file
 import cv2
 import paz
@@ -6,6 +5,7 @@ import jax.numpy as jp
 
 
 def download(label):
+    # URL = "https://raw.githubusercontent.com/opencv/opencv/refs/heads/4.x/data/haarcascades/"
     URL = (
         "https://raw.githubusercontent.com/opencv/opencv/"
         "master/data/haarcascades/"
@@ -20,10 +20,6 @@ def get_empty_boxes():
     return jp.full((1, 5), -1)
 
 
-def preprocess(image):
-    return paz.image.RGB_to_GRAY(image)
-
-
 def postprocess(boxes, class_arg):
     boxes = paz.boxes.xywh_to_xyxy(boxes)
     boxes = paz.boxes.append_class(boxes, class_arg).astype(int)
@@ -35,8 +31,8 @@ def HaarCascadeDetector(label, scale, neighbors, class_arg, draw=None):
     detect = download(label)
 
     def call(RGB_image):
-        gray_image = preprocess(RGB_image)
-        boxes = detect(paz.to_numpy(gray_image), scale, neighbors)
+        GRAY_image = paz.image.RGB_to_GRAY(RGB_image)
+        boxes = detect(paz.to_numpy(GRAY_image), scale, neighbors)
         if len(boxes) == 0:
             boxes = get_empty_boxes()
         else:

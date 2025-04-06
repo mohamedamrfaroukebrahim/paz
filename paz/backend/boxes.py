@@ -205,3 +205,41 @@ def apply_NMS(boxes, scores, iou_thresh=0.45, top_k=200):
     _, keep_mask = jax.lax.scan(step, initial_mask, top_k_args)
     selected_indices = top_k_score_args[keep_mask]
     return selected_indices
+
+
+def to_xywh(boxes):
+    return xyxy_to_xywh(boxes)
+
+
+def xyxy_to_xywh(boxes):
+    x_min, y_min = boxes[:, 0:1], boxes[:, 1:2]
+    x_max, y_max = boxes[:, 2:3], boxes[:, 3:4]
+    W = x_max - x_min
+    H = y_max - y_min
+    return merge(x_min, y_min, W, H)
+
+
+def xywh_to_xyxy(boxes):
+    x_min, y_min, W, H = split(boxes)
+    x_max = x_min + W
+    y_max = y_min + H
+    boxes = merge(x_min, y_min, x_max, y_max)
+    return boxes
+
+
+def flip_left_right(boxes, image_width):
+    """Flips box coordinates from left-to-right and vice-versa.
+
+    # Arguments
+        boxes: Numpy array of shape `(num_boxes, 4)`.
+
+    # Returns
+        Numpy array of shape `(num_boxes, 4)`.
+    """
+    x_min, y_min, x_max, y_max = split(boxes)
+    return merge(x_max, y_min, x_min, y_max)
+
+
+def append_class(boxes, class_arg):
+    class_args = jp.full((len(boxes), 1), class_arg)
+    return jp.hstack((boxes, class_args))
