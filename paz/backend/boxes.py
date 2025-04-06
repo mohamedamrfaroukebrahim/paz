@@ -17,6 +17,45 @@ def compute_centers(boxes):
     return center_x, center_y
 
 
+def merge(coordinate_0, coordinate_1, coordinate_2, coordinate_3):
+    return jp.concatenate(
+        [coordinate_0, coordinate_1, coordinate_2, coordinate_3], axis=1
+    )
+
+
+def compute_area(boxes):
+    x_min, y_min, x_max, y_max = split(boxes)
+    W = x_max - x_min
+    H = y_max - y_min
+    return W * H
+
+
+def join(boxes):
+    return jp.concatenate(boxes, axis=0)
+
+
+def square(boxes):
+    """Makes boxes square with sides equal to the longest original side.
+
+    # Arguments
+        box: Numpy array with shape `(4)` with point corner coordinates.
+
+    # Returns
+        returns: List of box coordinates ints.
+    """
+    # TODO missing with edge cases
+    x_min, y_min, x_max, y_max = split(boxes)
+    center_x = (x_max + x_min) / 2.0
+    center_y = (y_max + y_min) / 2.0
+    boxes_W = x_max - x_min
+    boxes_H = y_max - y_min
+    x_min = jp.where(boxes_H >= boxes_W, center_x - (boxes_H / 2.0), x_min)
+    x_max = jp.where(boxes_H >= boxes_W, center_x + (boxes_H / 2.0), x_max)
+    y_min = jp.where(boxes_H >= boxes_W, y_min, center_y - (boxes_W / 2.0))
+    y_max = jp.where(boxes_H >= boxes_W, y_max, center_y + (boxes_W / 2.0))
+    return merge(x_min, y_min, x_max, y_max).astype(int)
+
+
 def compute_size(boxes):
     """Compute width and height from boxes in corner format [x_min, y_min, x_max, y_max]."""
     x_min, y_min, x_max, y_max = split(boxes)
