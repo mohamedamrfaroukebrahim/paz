@@ -47,6 +47,16 @@ def true_IOUs():
     return jp.array([0.48706725, 0.787838, 0.70033113, 0.70739083, 0.39040922])
 
 
+@pytest.fixture
+def boxes_D_corner_form():
+    return jp.array([[0.0, 0.0, 2.0, 2.0]])
+
+
+@pytest.fixture
+def boxes_D_center_form():
+    return jp.array([[1.0, 1.0, 2.0, 2.0]])
+
+
 def test_compute_IOUs_self_intersection_A(boxes_A):
     pred_IOUs = paz.boxes.compute_IOUs(boxes_A, boxes_A)
     assert jp.allclose(1.0, jp.diag(pred_IOUs))
@@ -75,3 +85,22 @@ def test_apply_NMS(boxes_C, scores_C):
     assert len(selected_indices) == 2
     assert selected_indices[0] == 1
     assert selected_indices[1] == 2
+
+
+def test_to_center_form(boxes_D_corner_form, boxes_D_center_form):
+    values = paz.boxes.to_center_form(boxes_D_corner_form)
+    assert jp.allclose(boxes_D_center_form, values)
+
+
+def test_to_corner_form(boxes_D_corner_form, boxes_D_center_form):
+    values = paz.boxes.to_corner_form(boxes_D_center_form)
+    assert jp.allclose(boxes_D_corner_form, values)
+
+
+@pytest.mark.skip(reason="Not implemented")
+def test_encode_decode():
+    matched = jp.array([[0.0, 0.0, 2.0, 2.0, 1.0]])
+    priors = paz.boxes.to_center_form(matched[:, :4])
+    encoded = paz.boxes.encode(matched, priors)
+    decoded = paz.boxes.decode(encoded, priors)
+    assert jp.allclose(decoded[:, :4], matched[:, :4], atol=1e-4)

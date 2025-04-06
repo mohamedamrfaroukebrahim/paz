@@ -58,7 +58,7 @@ def square(boxes):
     return merge(x_min, y_min, x_max, y_max).astype(int)
 
 
-def compute_size(boxes):
+def compute_sizes(boxes):
     """Compute width and height from boxes in corner format."""
     x_min, y_min, x_max, y_max = split(boxes)
     W = x_max - x_min
@@ -76,7 +76,7 @@ def to_center_form(boxes):
         array: Boxes in center format [center_x, center_y, width, height]
     """
     center_x, center_y = compute_centers(boxes)
-    H, W = compute_size(boxes)
+    H, W = compute_sizes(boxes)
     return jp.concatenate([center_x, center_y, W, H], axis=1)
 
 
