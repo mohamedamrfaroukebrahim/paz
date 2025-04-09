@@ -24,7 +24,8 @@ image_boxes = paz.boxes.square(image_boxes)
 image_with_boxes = paz.draw.boxes(image, image_boxes)
 paz.image.show(image_with_boxes)
 
-num_trials = 5
+num_trials = 15
+num_boxes = 5
 H_box, W_box = 128, 128
 key = jax.random.key(777)
 keys = jax.random.split(key)
@@ -36,9 +37,12 @@ x_max = x_min + W_box
 y_max = y_min + H_box
 random_boxes = paz.boxes.merge(x_min, y_min, x_max, y_max)
 ious = paz.boxes.compute_IOUs(random_boxes, image_boxes)
-mean_iou = jp.mean(ious, axis=1)
-best_arg = jp.argmin(mean_iou)
-best_box = random_boxes[best_arg]
+mean_ious = jp.mean(ious, axis=1)
+best_args = jp.argsort(mean_ious)[::-1]
+best_args = best_args[:num_boxes]
+best_boxes = random_boxes[best_args]
+image_with_boxes = paz.draw.boxes(image_with_boxes, best_boxes, paz.draw.RED)
+paz.image.show(image_with_boxes)
 
 # random_box = jp.array([[x_min, y_min, x_max, y_max]])
 # image = paz.draw.boxes(image, random_box)
