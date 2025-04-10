@@ -29,7 +29,8 @@ num_boxes = 5
 H_box, W_box = 128, 128
 key = jax.random.key(777)
 keys = jax.random.split(key)
-H, W = paz.backend.image.get_dimensions(image)
+# get shape / get_size
+H, W = paz.image.get_dimensions(image)
 
 x_min = jax.random.randint(keys[0], (num_trials, 1), 0, W)
 y_min = jax.random.randint(keys[1], (num_trials, 1), 0, H)
