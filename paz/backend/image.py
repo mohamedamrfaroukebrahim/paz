@@ -150,3 +150,91 @@ def normalize_min_max(x, axis=-1):
     x_min = x.min(axis=axis, keepdims=True)
     x_max = x.max(axis=axis, keepdims=True)
     return (x - x_min) / (x_max - x_min)
+
+
+def random_brightness(key, image, delta=32):
+    """Applies random brightness to an RGB image.
+
+    # Arguments
+        image: Numpy array representing an image RGB format.
+        delta: Int.
+    """
+    image = paz.cast(image, jp.float32)
+    random_brightness = jax.random.uniform(key, (), jp.float32, -delta, delta)
+    image = image + random_brightness
+    image = jp.clip(image, 0, 255)
+    image = paz.cast(image, jp.uint8)
+    return image
+
+
+def random_contrast(key, image, lower=0.5, upper=1.5):
+    """Applies random contrast to an RGB image.
+
+    # Arguments
+        image: Numpy array representing an image RGB format.
+        lower: Float.
+        upper: Float.
+    """
+    alpha = jax.random.uniform(key, (), jp.float32, lower, upper)
+    image = paz.cast(image, jp.float32)
+    image = image * alpha
+    image = jp.clip(image, 0, 255)
+    image = paz.cast(image, jp.uint8)
+    return image
+
+
+def split_channels(image, num_channels=3):
+    channels = jp.split(image, num_channels, axis=-1)
+    return tuple(map(lambda channel: jp.squeeze(channel, axis=-1), channels))
+
+
+def merge_channels(channel_0, channel_1, channel_2):
+    return jp.concatenate([channel_0, channel_1, channel_2], axis=1)
+
+
+def rgb_to_hsv(image, channel_axis=-1):
+    """Convert image from RGB to HSV."""
+    r, g, b = split_channels(image, channel_axis)
+    channels_max = jp.max(image, axis=-1)  # value = channels_max
+    channels_min = jp.min(image, axis=-1)
+    delta = channels_max - channels_min
+    safe_value = jp.where(channels_max > 0, channels_max, 1.0)
+    safe_delta = jp.where(delta > 0, delta, 1.0)
+    saturation = jp.where(channels_max > 0, delta / safe_value, 0.0)
+    norm = 1.0 / (6.0 * safe_delta)
+    hue = jp.where(
+        channels_max == g,
+        norm * (b - r) + 2.0 / 6.0,
+        norm * (r - g) + 4.0 / 6.0,
+    )
+    hue = jp.where(channels_max == r, norm * (g - b), hue)
+    hue = jp.where(delta > 0, hue, 0.0) + (hue < 0.0)
+    return jp.stack([hue, saturation, channels_max])
+
+
+def hsv_to_rgb(image):
+    """Converts hue, saturation, value planes to r, g, b color planes."""
+    hue, saturation, value = split_channels(image)
+    dh = (hue % 1.0) * 6.0  # Wrap when hue >= 360°.
+    dr = jp.clip(jp.abs(dh - 3.0) - 1.0, 0.0, 1.0)
+    dg = jp.clip(2.0 - jp.abs(dh - 2.0), 0.0, 1.0)
+    db = jp.clip(2.0 - jp.abs(dh - 4.0), 0.0, 1.0)
+    one_minus_saturation = 1.0 - saturation
+    r = value * (one_minus_saturation + saturation * dr)
+    g = value * (one_minus_saturation + saturation * dg)
+    b = value * (one_minus_saturation + saturation * db)
+    return r, g, b
+
+
+def random_saturation(key, image, lower=0.3, upper=1.5):
+    """Applies random saturation to an RGB image."""
+    image = normalize(image)
+    image = hsv_to_rgb(image)
+    h, s, v = split_channels(image)
+    random_scale = jax.random.uniform(key, (), jp.float32, lower, upper)
+    s = s * random_scale
+    s = np.clip(s, 0.0, 1.0)
+    image = merge_channels(h, s, v)
+    image = hsv_to_rgb(image)
+    image = denormalize(image)
+    return paz.cast(image, jp.uint8)
