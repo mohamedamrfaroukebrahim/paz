@@ -48,3 +48,27 @@ paz.image.show(image_with_boxes)
 # random_box = jp.array([[x_min, y_min, x_max, y_max]])
 # image = paz.draw.boxes(image, random_box)
 # paz.image.show(image)
+# keys = jax.random.split(jax.random.key(777), 3)
+# image = paz.image.random_saturation(keys[0], image)
+# paz.image.show(image)
+# image = paz.image.random_brightness(keys[1], image)
+# paz.image.show(image)
+# image = paz.image.random_contrast(keys[2], image)
+# paz.image.show(image)
+
+# for key in jax.random.split(key, 10):
+#     paz.image.show(paz.image.random_saturation(key, image.copy(), 0.5, 2.0))
+
+# for key in jax.random.split(key, 10):
+#     paz.image.show(paz.image.random_brightness(key, image.copy(), 100))
+
+# for key in jax.random.split(key, 100):
+#     paz.image.show(paz.image.random_contrast(key, image.copy()))
+
+
+for key in jax.random.split(key, 20):
+    keys = jax.random.split(key, 3)
+    img = paz.image.random_saturation(keys[0], image.copy())
+    img = paz.image.random_brightness(keys[1], img)
+    img = paz.image.random_contrast(keys[2], img)
+    paz.image.show(img)

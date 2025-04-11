@@ -175,7 +175,7 @@ def random_contrast(key, image, lower=0.5, upper=1.5):
         lower: Float.
         upper: Float.
     """
-    alpha = jax.random.uniform(key, (), jp.float32, lower, upper)
+    alpha = jax.random.uniform(key, (1,), jp.float32, lower, upper)
     image = paz.cast(image, jp.float32)
     image = image * alpha
     image = jp.clip(image, 0, 255)
@@ -185,16 +185,19 @@ def random_contrast(key, image, lower=0.5, upper=1.5):
 
 def split_channels(image, num_channels=3):
     channels = jp.split(image, num_channels, axis=-1)
-    return tuple(map(lambda channel: jp.squeeze(channel, axis=-1), channels))
+    return tuple(jp.squeeze(channel, axis=-1) for channel in channels)
 
 
 def merge_channels(channel_0, channel_1, channel_2):
-    return jp.concatenate([channel_0, channel_1, channel_2], axis=1)
+    channel_0 = jp.expand_dims(channel_0, axis=-1)
+    channel_1 = jp.expand_dims(channel_1, axis=-1)
+    channel_2 = jp.expand_dims(channel_2, axis=-1)
+    return jp.concatenate([channel_0, channel_1, channel_2], axis=-1)
 
 
-def rgb_to_hsv(image, channel_axis=-1):
+def rgb_to_hsv(image):
     """Convert image from RGB to HSV."""
-    r, g, b = split_channels(image, channel_axis)
+    r, g, b = split_channels(image)
     channels_max = jp.max(image, axis=-1)  # value = channels_max
     channels_min = jp.min(image, axis=-1)
     delta = channels_max - channels_min
@@ -209,7 +212,7 @@ def rgb_to_hsv(image, channel_axis=-1):
     )
     hue = jp.where(channels_max == r, norm * (g - b), hue)
     hue = jp.where(delta > 0, hue, 0.0) + (hue < 0.0)
-    return jp.stack([hue, saturation, channels_max])
+    return merge_channels(hue, saturation, channels_max)
 
 
 def hsv_to_rgb(image):
@@ -223,13 +226,13 @@ def hsv_to_rgb(image):
     r = value * (one_minus_saturation + saturation * dr)
     g = value * (one_minus_saturation + saturation * dg)
     b = value * (one_minus_saturation + saturation * db)
-    return r, g, b
+    return merge_channels(r, g, b)
 
 
 def random_saturation(key, image, lower=0.3, upper=1.5):
     """Applies random saturation to an RGB image."""
     image = normalize(image)
-    image = hsv_to_rgb(image)
+    image = rgb_to_hsv(image)
     h, s, v = split_channels(image)
     random_scale = jax.random.uniform(key, (), jp.float32, lower, upper)
     s = s * random_scale
