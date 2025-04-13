@@ -309,8 +309,13 @@ def plot_language(language):
     """
     characters = []
     for characters_name, images in language.items():
-        images = np.expand_dims(images, axis=-1)
-        characters.append(paz.draw.mosaic(images, (5, 4), 10))
+        characters.append(paz.draw.mosaic(images, border=10, background=1.0))
     characters = np.array(characters)
-    characters = paz.draw.mosaic(characters, (8, 7), 20)
-    return characters
+    characters = paz.draw.mosaic(characters, border=20, background=1.0)
+    return paz.image.denormalize(characters)
+
+
+if __name__ == "__main__":
+    train_data = load("train")
+    image = plot_language(train_data)
+    paz.image.write("omniglot_train.png", image)
