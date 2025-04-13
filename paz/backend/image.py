@@ -27,7 +27,9 @@ rgb_IMAGENET_STDV = jp.array(
         B_IMAGENET_STDV / 255,
     ]
 )
+
 GRAY = cv2.IMREAD_GRAYSCALE
+COLOR = cv2.IMREAD_COLOR
 DEPTH = cv2.IMREAD_ANYDEPTH
 
 
@@ -51,8 +53,15 @@ def RGB_to_BGR(image_RGB):
     return image_RGB[..., ::-1]
 
 
-def load(filepath, flags=None):
-    return jp.array(BGR_to_RGB(cv2.imread(filepath, flags)))
+def load(filepath, flag=COLOR):
+    image = jp.array(cv2.imread(filepath, flag))
+    if flag == COLOR:
+        image = BGR_to_RGB(image)
+    elif flag == GRAY:
+        image = jp.expand_dims(image, axis=-1)
+    else:
+        raise ValueError("Invalid flag")
+    return image
 
 
 def write(filepath, image):

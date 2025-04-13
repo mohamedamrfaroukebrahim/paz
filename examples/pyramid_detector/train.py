@@ -66,8 +66,13 @@ paz.image.show(image_with_boxes)
 #     paz.image.show(paz.image.random_contrast(key, image.copy()))
 
 
+def solarize(image, threshold=128):
+    return jp.where(image < threshold, image, 255 - image)
+
+
 for key in jax.random.split(key, 20):
     keys = jax.random.split(key, 3)
+    # img = solarize(image)
     img = paz.image.random_saturation(keys[0], image.copy())
     img = paz.image.random_brightness(keys[1], img)
     img = paz.image.random_contrast(keys[2], img)
