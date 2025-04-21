@@ -12,9 +12,10 @@ def add_ones(points):
 
 
 def transform_points(affine_transform, points):
+    dimension = points.shape[-1]
     points = add_ones(points)
     points = jp.matmul(affine_transform, points.T).T
-    return points[:, :3]
+    return points[:, :dimension]
 
 
 def dehomogenize_coordinates(homogenous_point):
