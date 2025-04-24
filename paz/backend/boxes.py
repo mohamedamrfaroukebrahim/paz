@@ -176,11 +176,34 @@ def compute_IOUs(boxes_A, boxes_B):
     return jp.clip(intersection_area / union_area, 0.0, 1.0)
 
 
+def filter_zero_area_boxes(boxes):
+    """
+    Identifies and filters out boxes with zero area.
+    """
+    if boxes.shape[0] == 0:
+        return boxes, jp.array([], dtype=jp.int32)
+
+    widths = boxes[:, 2] - boxes[:, 0]
+    heights = boxes[:, 3] - boxes[:, 1]
+    valid_area_mask = (widths > 0) & (heights > 0)
+
+    valid_indices = jp.where(valid_area_mask)[0]
+    filtered_boxes = boxes[valid_indices]
+
+    return filtered_boxes, valid_indices
+
+
 def apply_NMS(boxes, scores, iou_thresh=0.45, top_k=200):
-    top_k = min(top_k, len(boxes))
-    sorted_score_args = jp.argsort(scores)[::-1]
+
+    filtered_boxes, original_valid_indices = filter_zero_area_boxes(boxes)
+    if filtered_boxes.shape[0] == 0:
+        return jp.array([], dtype=jp.int32)
+    filtered_scores = scores[original_valid_indices]
+
+    top_k = min(top_k, len(filtered_boxes))
+    sorted_score_args = jp.argsort(filtered_scores)[::-1]
     top_k_score_args = sorted_score_args[:top_k]
-    top_k_boxes = jp.take(boxes, top_k_score_args, axis=0)
+    top_k_boxes = jp.take(filtered_boxes, top_k_score_args, axis=0)
     top_k_args = jp.arange(len(top_k_boxes))
 
     def step(suppressed_mask, top_k_arg):
@@ -203,8 +226,12 @@ def apply_NMS(boxes, scores, iou_thresh=0.45, top_k=200):
 
     initial_mask = jp.zeros(len(top_k_boxes), dtype=bool)
     _, keep_mask = jax.lax.scan(step, initial_mask, top_k_args)
-    selected_indices = top_k_score_args[keep_mask]
-    return selected_indices
+
+    # Map back to original indices
+    selected_indices_relative_to_filtered = top_k_score_args[keep_mask]
+    final_original_indices = original_valid_indices[selected_indices_relative_to_filtered]
+
+    return final_original_indices
 
 
 def to_xywh(boxes):

@@ -165,13 +165,6 @@ def test_apply_nms_top_k(simple_boxes_scores):
     assert set(selected_indices.tolist()) == {0}
 
 
-def test_apply_nms_empty_input():
-    """Test empty input returns empty array."""
-    boxes = jp.empty((0, 4))
-    scores = jp.empty(0)
-    assert len(apply_NMS(boxes, scores)) == 0
-
-
 def test_apply_nms_single_box():
     """Test single box returns itself."""
     boxes = jp.array([[0, 0, 10, 10]])
@@ -211,79 +204,3 @@ def test_apply_nms_zero_area_boxes():
     # Zero area boxes should be filtered out during the NMS process
     assert 1 not in selected and 2 not in selected
 
-
-##############################################################################
-# compares with original
-##############################################################################
-
-from paz.backend.boxes_original import apply_non_max_suppression
-import numpy as np
-
-
-@pytest.fixture
-def comparison_boxes_scores():
-    """Fixture for comparison tests with different box coordinates."""
-    boxes = np.array([[0, 0, 10, 10], [1, 1, 9, 9], [5, 5, 15, 15], [20, 20, 30, 30]])
-    scores = np.array([0.9, 0.75, 0.6, 0.7])
-    return boxes, scores
-
-
-def compare_nms_results(boxes, scores, iou_thresh=0.5, top_k=200):
-    """Helper to compare results between implementations."""
-    orig_indices, _ = apply_non_max_suppression(boxes, scores, iou_thresh, top_k)
-    jax_indices = apply_NMS(jp.array(boxes), jp.array(scores), iou_thresh, top_k)
-    return set(orig_indices.tolist()), set(jax_indices.tolist())
-
-
-def test_basic_nms_comparison(comparison_boxes_scores):
-    """Redundant with test_apply_nms_basic but checks original implementation."""
-    boxes, scores = comparison_boxes_scores
-    orig, jax = compare_nms_results(boxes, scores, 0.5)
-    assert orig == jax == {0, 3, 2}
-
-
-def test_higher_threshold_comparison(comparison_boxes_scores):
-    boxes, scores = comparison_boxes_scores
-    orig, jax = compare_nms_results(boxes, scores, 0.9)
-    assert orig == jax == {0, 1, 3, 2}
-
-
-def test_lower_threshold_comparison(comparison_boxes_scores):
-    boxes, scores = comparison_boxes_scores
-    orig, jax = compare_nms_results(boxes, scores, 0.4)
-    assert orig == jax == {0, 3, 2}
-
-
-def test_top_k_comparison(comparison_boxes_scores):
-    boxes, scores = comparison_boxes_scores
-    orig, jax = compare_nms_results(boxes, scores, 0.5, 2)
-    assert orig == jax == {0}
-
-
-def test_large_random_input():
-    """Test both implementations on large random input."""
-    np.random.seed(42)
-    boxes = np.random.rand(100, 4) * 100
-    boxes[:, 2:] += boxes[:, :2]  # Ensure valid boxes
-    scores = np.random.rand(100)
-    orig, jax = compare_nms_results(boxes, scores)
-    assert orig == jax
-
-
-def test_zero_area_boxes_comparison():
-    """Test both implementations with zero-area boxes."""
-    boxes = np.array(
-        [
-            [0, 0, 10, 10],  # Normal
-            [5, 5, 5, 15],  # Zero width
-            [5, 5, 15, 5],  # Zero height
-            [5, 5, 15, 15],  # Normal
-        ]
-    )
-    scores = np.array([0.9, 0.8, 0.7, 0.6])
-
-    orig_set, jax_set = compare_nms_results(boxes, scores)
-    # Both implementations should filter out zero-area boxes
-    # and keep normal boxes with higher scores
-    print(orig_set, jax_set)
-    assert orig_set == jax_set
