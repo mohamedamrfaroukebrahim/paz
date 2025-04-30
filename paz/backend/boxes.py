@@ -234,135 +234,103 @@ def apply_NMS(boxes, scores, iou_thresh=0.45, top_k=200):
     return final_original_indices
 
 
-def to_xywh(boxes):
-    return xyxy_to_xywh(boxes)
-
-
-def xyxy_to_xywh(boxes):
-    x_min, y_min = boxes[:, 0:1], boxes[:, 1:2]
-    x_max, y_max = boxes[:, 2:3], boxes[:, 3:4]
-    W = x_max - x_min
-    H = y_max - y_min
-    return merge(x_min, y_min, W, H)
-
-
-def xywh_to_xyxy(boxes):
-    x_min, y_min, W, H = split(boxes)
-    x_max = x_min + W
-    y_max = y_min + H
-    boxes = merge(x_min, y_min, x_max, y_max)
-    return boxes
-
-
-def flip_left_right(boxes, image_width):
-    """Flips box coordinates from left-to-right and vice-versa.
-
-    # Arguments
-        boxes: Numpy array of shape `(num_boxes, 4)`.
-
-    # Returns
-        Numpy array of shape `(num_boxes, 4)`.
-    """
-    x_min, y_min, x_max, y_max = split(boxes)
-    return merge(x_max, y_min, x_min, y_max)
-
-
-def append_class(boxes, class_arg):
-    class_args = jp.full((len(boxes), 1), class_arg)
-    return jp.hstack((boxes, class_args))
-
-
-def encode_center_coordinates(boxes, priors, variances):
-    """Encode center coordinates using priors and variances."""
-    difference_x = boxes[:, 0:1] - priors[:, 0:1]
-    difference_y = boxes[:, 1:2] - priors[:, 1:2]
-    encoded_center_x = (difference_x / priors[:, 2:3]) / variances[0]
-    encoded_center_y = (difference_y / priors[:, 3:4]) / variances[1]
-    return encoded_center_x, encoded_center_y
-
-
-def encode_dimensions(boxes, priors, variances):
-    """Encode width and height dimensions."""
-    ratio_width = boxes[:, 2:3] / priors[:, 2:3]
-    ratio_height = boxes[:, 3:4] / priors[:, 3:4]
-    encoded_width = jp.log(ratio_width + 1e-8) / variances[2]
-    encoded_height = jp.log(ratio_height + 1e-8) / variances[3]
-    return encoded_width, encoded_height
-
-
-def concatenate_encoded_boxes(encoded_x, encoded_y, encoded_w, encoded_h, extras):
-    """Concatenate encoded box parameters with extras."""
-    return jp.concatenate([encoded_x, encoded_y, encoded_w, encoded_h, extras], axis=1)
-
-
 def encode(matched, priors, variances=[0.1, 0.1, 0.2, 0.2]):
     """Encode matched bounding boxes relative to prior boxes.
 
-    Args:
-        matched (array): Matched target boxes
-        priors (array): Prior boxes
+    # Arguments
+        matched (array): Matched target boxes (assumed [cx, cy, w, h, extras...])
+                         or converted by to_center_form if input is corner form.
+                         Original code implies input `matched` needs conversion.
+        priors (array): Prior boxes (assumed [cx, cy, w, h])
         variances (list): Variances for encoding (cx, cy, w, h)
 
-    Returns:
-        array: Encoded box parameters
+    # Returns
+        array: Encoded box parameters ([dx, dy, dw, dh, extras...])
     """
-    boxes_center = to_center_form(matched[:, :4])
+
+    def encode_center_coordinates(boxes_center, priors_local, variances_local):
+        """Encode center coordinates using priors and variances."""
+        difference_x = boxes_center[:, 0:1] - priors_local[:, 0:1]
+        difference_y = boxes_center[:, 1:2] - priors_local[:, 1:2]
+        encoded_center_x = (difference_x / priors_local[:, 2:3]) / variances_local[0]
+        encoded_center_y = (difference_y / priors_local[:, 3:4]) / variances_local[1]
+        return encoded_center_x, encoded_center_y
+
+    def encode_dimensions(boxes_center, priors_local, variances_local):
+        """Encode width and height dimensions."""
+        ratio_width = boxes_center[:, 2:3] / priors_local[:, 2:3]
+        ratio_height = boxes_center[:, 3:4] / priors_local[:, 3:4]
+        encoded_width = jp.log(ratio_width + 1e-8) / variances_local[2]
+        encoded_height = jp.log(ratio_height + 1e-8) / variances_local[3]
+        return encoded_width, encoded_height
+
+    def concatenate_encoded_boxes(encoded_x, encoded_y, encoded_w, encoded_h, extras_local):
+        """Concatenate encoded box parameters with extras."""
+        return jp.concatenate([encoded_x, encoded_y, encoded_w, encoded_h, extras_local], axis=1)
+
+    boxes_corner = matched[:, :4]
+    boxes_center = to_center_form(boxes_corner)
     extras = matched[:, 4:]
-    encoded_x, encoded_y = encode_center_coordinates(boxes_center, priors, variances)
-    encoded_w, encoded_h = encode_dimensions(boxes_center, priors, variances)
+
+    priors_center = priors
+
+    encoded_x, encoded_y = encode_center_coordinates(boxes_center, priors_center, variances)
+    encoded_w, encoded_h = encode_dimensions(boxes_center, priors_center, variances)
+
     return concatenate_encoded_boxes(encoded_x, encoded_y, encoded_w, encoded_h, extras)
-
-
-def decode_center_x(predictions, priors, variances):
-    """Decode center x-coordinate from predictions."""
-    return predictions[:, 0:1] * priors[:, 2:3] * variances[0] + priors[:, 0:1]
-
-
-def decode_center_y(predictions, priors, variances):
-    """Decode center y-coordinate from predictions."""
-    return predictions[:, 1:2] * priors[:, 3:4] * variances[1] + priors[:, 1:2]
-
-
-def decode_W(predictions, priors, variances):
-    """Decode width from predictions."""
-    return priors[:, 2:3] * jp.exp(predictions[:, 2:3] * variances[2])
-
-
-def decode_H(predictions, priors, variances):
-    """Decode height from predictions."""
-    return priors[:, 3:4] * jp.exp(predictions[:, 3:4] * variances[3])
-
-
-def compute_boxes_center(predictions, priors, variances):
-    """Compute center-form boxes from predictions."""
-    center_x = decode_center_x(predictions, priors, variances)
-    center_y = decode_center_y(predictions, priors, variances)
-    W = decode_W(predictions, priors, variances)
-    H = decode_H(predictions, priors, variances)
-    return jp.concatenate([center_x, center_y, W, H], axis=1)
-
-
-def convert_to_corner(boxes_center):
-    """Convert center-form boxes to corner form."""
-    return to_corner_form(boxes_center)
-
-
-def combine_with_extras(boxes_corner, predictions):
-    """Combine boxes with extra prediction data."""
-    return jp.concatenate([boxes_corner, predictions[:, 4:]], axis=1)
 
 
 def decode(predictions, priors, variances=[0.1, 0.1, 0.2, 0.2]):
     """Decode predicted box parameters to actual coordinates.
 
-    Args:
-        predictions (array): Encoded box predictions
-        priors (array): Prior boxes
+    # Arguments
+        predictions (array): Encoded box predictions ([dx, dy, dw, dh, extras...])
+        priors (array): Prior boxes (assumed [cx, cy, w, h])
         variances (list): Decoding variances
 
-    Returns:
-        array: Decoded boxes in corner format with extras
+    # Returns
+        array: Decoded boxes in corner format with extras ([xmin, ymin, xmax, ymax, extras...])
     """
-    boxes_center = compute_boxes_center(predictions, priors, variances)
+
+    def compute_boxes_center(predictions_local, priors_local, variances_local):
+        """Compute center-form boxes from predictions."""
+
+        def decode_center_x(pred, pr, var):
+            """Decode center x-coordinate from predictions."""
+            return pred[:, 0:1] * pr[:, 2:3] * var[0] + pr[:, 0:1]
+
+        def decode_center_y(pred, pr, var):
+            """Decode center y-coordinate from predictions."""
+            return pred[:, 1:2] * pr[:, 3:4] * var[1] + pr[:, 1:2]
+
+        def decode_W(pred, pr, var):
+            """Decode width from predictions."""
+            exp_term = pred[:, 2:3] * var[2]
+            return pr[:, 2:3] * jp.exp(exp_term)
+
+        def decode_H(pred, pr, var):
+            """Decode height from predictions."""
+            exp_term = pred[:, 3:4] * var[3]
+            return pr[:, 3:4] * jp.exp(exp_term)
+
+        center_x = decode_center_x(predictions_local, priors_local, variances_local)
+        center_y = decode_center_y(predictions_local, priors_local, variances_local)
+        W = decode_W(predictions_local, priors_local, variances_local)
+        H = decode_H(predictions_local, priors_local, variances_local)
+
+        return jp.concatenate([center_x, center_y, W, H], axis=1)
+
+    def convert_to_corner(boxes_center_local):
+        """Convert center-form boxes to corner form."""
+        return to_corner_form(boxes_center_local)
+
+    def combine_with_extras(boxes_corner_local, predictions_local):
+        """Combine boxes with extra prediction data."""
+        return jp.concatenate([boxes_corner_local, predictions_local[:, 4:]], axis=1)
+
+    priors_center = priors
+
+    boxes_center = compute_boxes_center(predictions, priors_center, variances)
     boxes_corner = convert_to_corner(boxes_center)
+
     return combine_with_extras(boxes_corner, predictions)

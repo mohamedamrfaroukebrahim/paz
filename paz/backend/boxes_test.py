@@ -10,16 +10,6 @@ from paz.backend.boxes import (
     decode,
     to_center_form,
     to_corner_form,
-    encode_center_coordinates,
-    encode_dimensions,
-    concatenate_encoded_boxes,
-    decode_center_x,
-    decode_center_y,
-    decode_W,
-    decode_H,
-    compute_boxes_center,
-    convert_to_corner,
-    combine_with_extras,
     apply_NMS,
 )
 
@@ -244,52 +234,56 @@ def create_test_data(num_boxes=2):
 
 def test_encode_center_coordinates():
     """Test the encode_center_coordinates helper function."""
-    boxes, priors = create_test_data(num_boxes=1)
 
-    # Convert boxes to center form for this specific test
-    boxes_center = to_center_form(boxes[:, :4])
+    matched_boxes_corner_fmt, priors_center_fmt = create_test_data(num_boxes=1)
     variances = [0.1, 0.1, 0.2, 0.2]
+    boxes_center_fmt = to_center_form(matched_boxes_corner_fmt[:, :4])
 
-    encoded_x, encoded_y = encode_center_coordinates(boxes_center, priors, variances)
+    exp_cx_diff = ((boxes_center_fmt[0, 0] - priors_center_fmt[0, 0]) / priors_center_fmt[0, 2]) / variances[
+        0
+    ]
+    exp_cy_diff = ((boxes_center_fmt[0, 1] - priors_center_fmt[0, 1]) / priors_center_fmt[0, 3]) / variances[
+        1
+    ]
+    expected_coords = jp.array([[exp_cx_diff, exp_cy_diff]])
 
-    # Manual calculation for comparison
-    exp_cx_diff = (boxes_center[0, 0] - priors[0, 0]) / priors[0, 2] / variances[0]
-    exp_cy_diff = (boxes_center[0, 1] - priors[0, 1]) / priors[0, 3] / variances[1]
+    actual_encoded_output = encode(matched_boxes_corner_fmt, priors_center_fmt, variances)
 
-    assert_array_almost_equal(encoded_x[0, 0], exp_cx_diff, decimal=5)
-    assert_array_almost_equal(encoded_y[0, 0], exp_cy_diff, decimal=5)
+    assert_array_almost_equal(actual_encoded_output[:, 0:2], expected_coords, decimal=5)
 
 
 def test_encode_dimensions():
     """Test the encode_dimensions helper function."""
-    boxes, priors = create_test_data(num_boxes=1)
 
-    # Convert boxes to center form for this specific test
-    boxes_center = to_center_form(boxes[:, :4])
+    matched_boxes_corner_fmt, priors_center_fmt = create_test_data(num_boxes=1)
     variances = [0.1, 0.1, 0.2, 0.2]
+    epsilon = 1e-8
+    boxes_center_fmt = to_center_form(matched_boxes_corner_fmt[:, :4])
 
-    encoded_w, encoded_h = encode_dimensions(boxes_center, priors, variances)
+    exp_w = jp.log(boxes_center_fmt[0, 2] / priors_center_fmt[0, 2] + epsilon) / variances[2]
+    exp_h = jp.log(boxes_center_fmt[0, 3] / priors_center_fmt[0, 3] + epsilon) / variances[3]
+    expected_dims = jp.array([[exp_w, exp_h]])
 
-    # Manual calculation for comparison
-    exp_w = jp.log(boxes_center[0, 2] / priors[0, 2] + 1e-8) / variances[2]
-    exp_h = jp.log(boxes_center[0, 3] / priors[0, 3] + 1e-8) / variances[3]
+    actual_encoded_output = encode(matched_boxes_corner_fmt, priors_center_fmt, variances)
 
-    assert_array_almost_equal(encoded_w[0, 0], exp_w, decimal=5)
-    assert_array_almost_equal(encoded_h[0, 0], exp_h, decimal=5)
+    assert_array_almost_equal(actual_encoded_output[:, 2:4], expected_dims, decimal=5)
 
 
 def test_concatenate_encoded_boxes():
     """Test the concatenate_encoded_boxes helper function."""
-    encoded_x = jp.array([[0.1], [0.2]])
-    encoded_y = jp.array([[0.3], [0.4]])
-    encoded_w = jp.array([[0.5], [0.6]])
-    encoded_h = jp.array([[0.7], [0.8]])
-    extras = jp.array([[1.0], [2.0]])
 
-    result = concatenate_encoded_boxes(encoded_x, encoded_y, encoded_w, encoded_h, extras)
+    num_boxes = 2
+    matched_boxes_corner_fmt, priors_center_fmt = create_test_data(num_boxes=num_boxes)
+    variances = [0.1, 0.1, 0.2, 0.2]
+    expected_extras = matched_boxes_corner_fmt[:, 4:]
+    expected_shape = (num_boxes, 5)
 
-    expected = jp.array([[0.1, 0.3, 0.5, 0.7, 1.0], [0.2, 0.4, 0.6, 0.8, 2.0]])
-    assert_array_almost_equal(result, expected, decimal=5)
+    actual_encoded_output = encode(matched_boxes_corner_fmt, priors_center_fmt, variances)
+
+    assert (
+        actual_encoded_output.shape == expected_shape
+    ), f"Expected shape {expected_shape}, but got {actual_encoded_output.shape}"
+    assert_array_almost_equal(actual_encoded_output[:, 4:], expected_extras, decimal=5)
 
 
 def test_encode_basic():
@@ -326,12 +320,7 @@ def test_decode_helpers():
     predictions = jp.array([[0.1, 0.2, 0.3, 0.4, 1.0]])
     priors = jp.array([[50, 60, 30, 40]])
     variances = [0.1, 0.1, 0.2, 0.2]
-
-    # Test individual decode functions
-    cx = decode_center_x(predictions, priors, variances)
-    cy = decode_center_y(predictions, priors, variances)
-    w = decode_W(predictions, priors, variances)
-    h = decode_H(predictions, priors, variances)
+    result = decode(predictions, priors, variances)
 
     # Manual calculations
     exp_cx = predictions[0, 0] * priors[0, 2] * variances[0] + priors[0, 0]
@@ -339,10 +328,11 @@ def test_decode_helpers():
     exp_w = priors[0, 2] * jp.exp(predictions[0, 2] * variances[2])
     exp_h = priors[0, 3] * jp.exp(predictions[0, 3] * variances[3])
 
-    assert_array_almost_equal(cx[0, 0], exp_cx, decimal=5)
-    assert_array_almost_equal(cy[0, 0], exp_cy, decimal=5)
-    assert_array_almost_equal(w[0, 0], exp_w, decimal=5)
-    assert_array_almost_equal(h[0, 0], exp_h, decimal=5)
+    boxes_center = jp.concatenate(
+        [jp.array([[exp_cx]]), jp.array([[exp_cy]]), jp.array([[exp_w]]), jp.array([[exp_h]])], axis=1
+    )
+    boxes_corner = to_corner_form(boxes_center)
+    assert_array_almost_equal(result[:, :4], boxes_corner, decimal=5)
 
 
 def test_compute_boxes_center():
@@ -351,17 +341,18 @@ def test_compute_boxes_center():
     priors = jp.array([[50, 60, 30, 40]])
     variances = [0.1, 0.1, 0.2, 0.2]
 
-    boxes_center = compute_boxes_center(predictions, priors, variances)
+    result = decode(predictions, priors, variances)
 
-    # Calculate individual components
-    cx = decode_center_x(predictions, priors, variances)
-    cy = decode_center_y(predictions, priors, variances)
-    w = decode_W(predictions, priors, variances)
-    h = decode_H(predictions, priors, variances)
+    cx = predictions[0, 0] * priors[0, 2] * variances[0] + priors[0, 0]
+    cy = predictions[0, 1] * priors[0, 3] * variances[1] + priors[0, 1]
+    w = priors[0, 2] * jp.exp(predictions[0, 2] * variances[2])
+    h = priors[0, 3] * jp.exp(predictions[0, 3] * variances[3])
 
-    expected = jp.concatenate([cx, cy, w, h], axis=1)
+    expected = jp.array([[cx, cy, w, h]])
 
-    assert_array_almost_equal(boxes_center, expected, decimal=5)
+    expected_corner = to_corner_form(expected)
+
+    assert_array_almost_equal(result[:, :4], expected_corner, decimal=5)
 
 
 def test_convert_to_corner_and_combine():
@@ -370,14 +361,27 @@ def test_convert_to_corner_and_combine():
     predictions = jp.array([[0.1, 0.2, 0.3, 0.4, 1.0]])
 
     # Test convert to corner
-    boxes_corner = convert_to_corner(boxes_center)
-    expected_corner = to_corner_form(boxes_center)
+    boxes_corner = to_corner_form(boxes_center)
+    expected_corner = jp.array(
+        [
+            [
+                boxes_center[0, 0] - boxes_center[0, 2] / 2,  # xmin
+                boxes_center[0, 1] - boxes_center[0, 3] / 2,  # ymin
+                boxes_center[0, 0] + boxes_center[0, 2] / 2,  # xmax
+                boxes_center[0, 1] + boxes_center[0, 3] / 2,  # ymax
+            ]
+        ]
+    )
     assert_array_almost_equal(boxes_corner, expected_corner, decimal=5)
 
-    # Test combine with extras
-    combined = combine_with_extras(boxes_corner, predictions)
-    expected_combined = jp.concatenate([boxes_corner, predictions[:, 4:]], axis=1)
-    assert_array_almost_equal(combined, expected_combined, decimal=5)
+    custom_priors = jp.array([[50, 60, 30, 40]])
+    variances = [0.1, 0.1, 0.2, 0.2]
+
+    combined = jp.concatenate([boxes_corner, predictions[:, 4:]], axis=1)
+
+    assert combined.shape == (1, 5)
+    assert_array_almost_equal(combined[:, :4], boxes_corner, decimal=5)
+    assert_array_almost_equal(combined[:, 4:], predictions[:, 4:], decimal=5)
 
 
 def test_decode_basic():
