@@ -42,31 +42,70 @@ def crop_and_resize(image, boxes, H_box, W_box):
 
 
 def augment(key, image):
-    keys = jax.random.split(key)
-    image = paz.image.random_color_transform(keys[0], image)
-    image = paz.image.random_rotation(keys[1], image, -jp.pi / 2, jp.pi / 2)
+    keys = jax.random.split(key, 3)
+    image = paz.image.random_flip_left_right(keys[0], image)
+    image = paz.image.random_color_transform(keys[1], image)
+    image = paz.image.random_rotation(keys[2], image, -jp.pi / 6, jp.pi / 6)
     return image
 
 
-def batch(key, image, detections, H_box, W_box):
+def sample_positives2(key, boxes):
+    # shuffle boxes
+    # do a for loop that iterates over the same boxes and jitters them.
+    # square, clip
+    return
+
+
+def sample_positives(key, boxes, H, W, num_samples, scale_range, shift_range):
+
+    def select_random_box(key, boxes):
+        arg = jax.random.randint(key, shape=(), minval=0, maxval=len(boxes))
+        return jp.expand_dims(boxes[arg], 0)
+
+    def apply(boxes, key):
+        box = select_random_box(key, boxes)
+        box = paz.boxes.jitter(key, box, H, W, scale_range, shift_range)
+        return boxes, jp.squeeze(box, axis=0)
+
+    keys = jax.random.split(key, num_samples)
+    _, jittered_boxes = jax.lax.scan(apply, boxes, keys)
+    return jittered_boxes
+
+
+def batch(
+    key, image, detections, H_box, W_box, batch_size=32, positive_ratio=0.5
+):
+    # TODO change arguments to be positive ratio, batch_size
+    num_positives = int(positive_ratio * batch_size)
+    num_negatives = batch_size - num_positives
     keys = jax.random.split(key, 4)
 
     # box preprocesing
     H, W = paz.image.get_size(image)
     positive_boxes = paz.detection.get_boxes(detections)
     positive_boxes = paz.boxes.denormalize(positive_boxes, H, W)
+    positive_boxes = sample_positives(
+        key, positive_boxes, H, W, num_positives, (0.8, 1.1), (-10, 10)
+    )
     positive_boxes = paz.boxes.square(positive_boxes)
-    # TODO add clip boxes
+    positive_boxes = paz.boxes.clip(positive_boxes, H, W)
 
     # positive preprocessing
     positive_images = crop_and_resize(image, positive_boxes, H_box, W_box)
     positive_keys = jax.random.split(keys[1], len(positive_images))
     positive_images = jax.vmap(augment)(positive_keys, positive_images)
-    # TODO sample more positives and trim
 
     # negative preprocessing
-    sample_negative_args = (keys[0], positive_boxes, H, W, box_size, 10, 20)
-    negative_boxes = paz.boxes.sample_negatives(*sample_negative_args)
+    negative_args = (
+        keys[0],
+        positive_boxes,
+        H,
+        W,
+        box_size,
+        num_negatives,
+        num_negatives * 2,
+    )
+    negative_boxes = paz.boxes.sample_negatives(*negative_args)
     negative_images = crop_and_resize(image, negative_boxes, H_box, W_box)
     negative_keys = jax.random.split(keys[3], len(negative_images))
     negative_images = jax.vmap(augment)(negative_keys, negative_images)
