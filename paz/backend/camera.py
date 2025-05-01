@@ -69,7 +69,7 @@ class Camera(object):
     def intrinsics_from_HFOV(self, HFOV=70, image_shape=None):
         if image_shape is None:
             self.start()
-            H, W = paz.image.get_dimensions(self.read())
+            H, W = paz.image.get_size(self.read())
             self.stop()
         else:
             H, W = image_shape[:2]

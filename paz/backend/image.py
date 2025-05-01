@@ -1,7 +1,7 @@
-import os
 import cv2
 import numpy as np
 import jax
+from jax.scipy.ndimage import map_coordinates
 import jax.numpy as jp
 
 import paz
@@ -128,7 +128,7 @@ def preprocess(image, shape):
     return normalize(resize(image, shape))
 
 
-def get_dimensions(image):
+def get_size(image):
     H, W = image.shape[:2]
     return H, W
 
@@ -140,7 +140,7 @@ def crop(image, box):
 
 def crop_center(image, crop_shape):
     H_new, W_new = crop_shape
-    H_now, W_now = get_dimensions(image)
+    H_now, W_now = get_size(image)
     center_x = W_now // 2
     center_y = H_now // 2
     x_min = center_x - (W_new // 2)
@@ -245,8 +245,70 @@ def random_saturation(key, image, lower=0.3, upper=1.5):
     h, s, v = split_channels(image)
     random_scale = jax.random.uniform(key, (), jp.float32, lower, upper)
     s = s * random_scale
-    s = np.clip(s, 0.0, 1.0)
+    s = jp.clip(s, 0.0, 1.0)
     image = merge_channels(h, s, v)
     image = hsv_to_rgb(image)
     image = denormalize(image)
     return paz.cast(image, jp.uint8)
+
+
+def random_hue(key, image, max_delta=0.1):
+    """Applies random hue adjustment to an RGB image.
+
+    Returns:
+        Image array with adjusted hue, dtype uint8.
+    """
+    # max_delta must be in the interval [0, 0.5]
+    image = normalize(image)
+    image = rgb_to_hsv(image)
+    h, s, v = split_channels(image)
+    delta = jax.random.uniform(key, (), minval=-max_delta, maxval=max_delta)
+    h = (h + delta) % 1.0
+    image = merge_channels(h, s, v)
+    image = hsv_to_rgb(image)
+    image = denormalize(image)
+    image = jp.clip(image, 0, 255)
+    return image.astype(jp.uint8)
+
+
+def random_color_transform(key, image):
+    key_1, key_2, key_3, key_4 = jax.random.split(key, 4)
+    image = random_saturation(key_1, image)
+    image = random_brightness(key_2, image)
+    image = random_contrast(key_3, image)
+    image = random_hue(key_4, image)
+    return image
+
+
+def affine_transform(image, matrix, order=1, mode="nearest", cval=0.0):
+
+    def build_image_indices(image):
+        dimension_indices = [jp.arange(size) for size in image.shape]
+        meshgrid = jp.meshgrid(*dimension_indices, indexing="ij")
+        meshgrid = [jp.expand_dims(x, axis=-1) for x in meshgrid]
+        indices = jp.concatenate(meshgrid, axis=-1)
+        return indices
+
+    offset = matrix[: image.ndim, image.ndim]
+    matrix = matrix[: image.ndim, : image.ndim]
+    coordinates = build_image_indices(image) @ matrix.T
+    coordinates = jp.moveaxis(coordinates, source=-1, destination=0)
+    offset = jp.full((3,), fill_value=offset)
+    coordinates += jp.reshape(offset, (*offset.shape, 1, 1, 1))
+    return map_coordinates(image, coordinates, order, mode, cval)
+
+
+def rotate(image, angle, order=1, mode="nearest", cval=0.0):
+    """Rotates an image around its center using interpolation."""
+    rotation = paz.SO3.rotation_z(angle)
+    image_center = (jp.asarray(image.shape) - 1.0) / 2.0
+    translation = image_center - rotation @ image_center
+    matrix = paz.SE3.to_affine_matrix(rotation, translation)
+    return affine_transform(image, matrix, order=order, mode=mode, cval=cval)
+
+
+def random_rotation(
+    key, image, min_angle, max_angle, order=1, mode="nearest", cval=0.0
+):
+    angle = jax.random.uniform(key, (), minval=min_angle, maxval=max_angle)
+    return rotate(image, angle, order, mode, cval)

@@ -8,3 +8,4 @@ from .detection import EFFICIENTDETD4
 from .detection import EFFICIENTDETD5
 from .detection import EFFICIENTDETD6
 from .detection import EFFICIENTDETD7
+from .classification.xception import MiniXception

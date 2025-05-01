@@ -33,7 +33,8 @@ def xception_block(input_tensor, num_kernels, l2_reg=0.01):
         num_kernels,
         3,
         padding="same",
-        kernel_regularizer=l2(l2_reg),
+        depthwise_regularizer=l2(l2_reg),
+        pointwise_regularizer=l2(l2_reg),
         use_bias=False,
     )(input_tensor)
     x = BatchNormalization()(x)
@@ -42,7 +43,8 @@ def xception_block(input_tensor, num_kernels, l2_reg=0.01):
         num_kernels,
         3,
         padding="same",
-        kernel_regularizer=l2(l2_reg),
+        depthwise_regularizer=l2(l2_reg),
+        pointwise_regularizer=l2(l2_reg),
         use_bias=False,
     )(x)
     x = BatchNormalization()(x)

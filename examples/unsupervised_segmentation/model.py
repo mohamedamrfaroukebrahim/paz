@@ -12,7 +12,7 @@ def compute_aspect_shape(H, W, smaller_edge_size):
 
 def preprocess(image, crop_shape, mean, stdv):
     size, size = crop_shape
-    H, W = compute_aspect_shape(*paz.image.get_dimensions(image), size)
+    H, W = compute_aspect_shape(*paz.image.get_size(image), size)
     image = paz.image.resize(image, (H, W))
     image = paz.image.crop_center(image, crop_shape)
     image = paz.image.normalize(image)

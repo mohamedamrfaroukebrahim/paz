@@ -56,7 +56,7 @@ if __name__ == "__main__":
     for path, detections in zip(train_images, train_labels):
         image = paz.image.load(path)
         image_boxes, class_args = paz.detection.split(detections)
-        H, W = paz.image.get_dimensions(image)
+        H, W = paz.image.get_size(image)
         image_boxes = (image_boxes * jp.array([[W, H, W, H]])).astype(int)
         image_boxes = paz.boxes.square(image_boxes)
         image = paz.draw.boxes(image, image_boxes)

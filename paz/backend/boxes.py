@@ -227,7 +227,7 @@ def xywh_to_xyxy(boxes):
     return boxes
 
 
-def flip_left_right(boxes, image_width):
+def flip_left_right(boxes, W):
     """Flips box coordinates from left-to-right and vice-versa.
 
     # Arguments
@@ -243,3 +243,71 @@ def flip_left_right(boxes, image_width):
 def append_class(boxes, class_arg):
     class_args = jp.full((len(boxes), 1), class_arg)
     return jp.hstack((boxes, class_args))
+
+
+def sample(key, H, W, box_size, num_boxes=15):
+    keys = jax.random.split(key)
+    H_box, W_box = box_size
+    x_min = jax.random.randint(keys[0], (num_boxes, 1), 0, W - W_box + 1)
+    y_min = jax.random.randint(keys[1], (num_boxes, 1), 0, H - H_box + 1)
+    x_max = x_min + W_box
+    y_max = y_min + H_box
+    return merge(x_min, y_min, x_max, y_max)
+
+
+def sample_negatives(key, boxes, H, W, box_size, num_boxes, num_trials):
+    negative_boxes = paz.boxes.sample(key, H, W, box_size, num_trials)
+    ious = paz.boxes.compute_IOUs(negative_boxes, boxes)
+    mean_ious = jp.mean(ious, axis=1)
+    # best_args = jp.argsort(mean_ious)[::-1]
+    best_args = jp.argsort(mean_ious)
+    best_args = best_args[:num_boxes]
+    return negative_boxes[best_args]
+
+
+def denormalize(boxes, H, W):
+    return (boxes * jp.array([[W, H, W, H]])).astype(int)
+
+
+def scale(boxes, scale_W, scale_H):
+    """Scales the width and height of a bounding box (xywh format)."""
+    x_center, y_center, W, H = split(xyxy_to_xywh(boxes))
+    new_W = scale_W * W
+    new_H = scale_H * H
+    boxes = merge(x_center, y_center, new_W, new_H)
+    return xywh_to_xyxy(boxes)
+
+
+def translate(boxes, x_offset, y_offset):
+    """Translates the center of a bounding box (xywh format)."""
+    x_center, y_center, W, H = split(xyxy_to_xywh(boxes))
+    x_new_center = x_center + x_offset
+    y_new_center = y_center + y_offset
+    boxes = merge(x_new_center, y_new_center, W, H)
+    return xywh_to_xyxy(boxes)
+
+
+def clip(boxes, H, W):
+    """Clips bounding box coordinates to image boundaries."""
+    x_min, y_min, x_max, y_max = split(boxes)
+    x_min_clipped = jp.clip(x_min, 0.0, W - 1.0)
+    y_min_clipped = jp.clip(y_min, 0.0, H - 1.0)
+    x_max_clipped = jp.clip(x_max, 0.0, W - 1.0)
+    y_max_clipped = jp.clip(y_max, 0.0, H - 1.0)
+    boxes = merge(x_min_clipped, y_min_clipped, x_max_clipped, y_max_clipped)
+    return boxes
+
+
+def jitter(key, boxes, H, W, scale_range, shift_range):
+    """Applies random scaling and translation, then clips"""
+    # this function jitters all boxes with the same translation and scale
+    # shall we jitter all of the boxes?
+    keys = jax.random.split(key, 4)
+    scale_min, scale_max = scale_range
+    shift_min, shift_max = shift_range
+    scale_W = jax.random.uniform(keys[0], minval=scale_min, maxval=scale_max)
+    scale_H = jax.random.uniform(keys[1], minval=scale_min, maxval=scale_max)
+    x_offset = jax.random.randint(keys[2], (), shift_min, shift_max + 1)
+    y_offset = jax.random.randint(keys[3], (), shift_min, shift_max + 1)
+    boxes = translate(scale(boxes, scale_W, scale_H), x_offset, y_offset)
+    return clip(boxes, H, W)

@@ -72,5 +72,9 @@ def split(detections):
     return boxes, class_args
 
 
+def get_boxes(detections):
+    return detections[:, :4]
+
+
 def join(boxes, class_args):
     return jp.concatenate([boxes, class_args], axis=0)
