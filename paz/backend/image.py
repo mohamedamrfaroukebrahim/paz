@@ -312,3 +312,8 @@ def random_rotation(
 ):
     angle = jax.random.uniform(key, (), minval=min_angle, maxval=max_angle)
     return rotate(image, angle, order, mode, cval)
+
+
+def random_flip_left_right(key, image):
+    do_flip = jax.random.bernoulli(key)
+    return jax.lax.cond(do_flip, flip_left_right, lambda x: x, image)
