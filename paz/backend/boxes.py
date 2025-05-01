@@ -290,10 +290,10 @@ def translate(boxes, x_offset, y_offset):
 def clip(boxes, H, W):
     """Clips bounding box coordinates to image boundaries."""
     x_min, y_min, x_max, y_max = split(boxes)
-    x_min_clipped = jp.clip(x_min, 0.0, W - 1.0)
-    y_min_clipped = jp.clip(y_min, 0.0, H - 1.0)
-    x_max_clipped = jp.clip(x_max, 0.0, W - 1.0)
-    y_max_clipped = jp.clip(y_max, 0.0, H - 1.0)
+    x_min_clipped = jp.clip(x_min, 0, W - 1)
+    y_min_clipped = jp.clip(y_min, 0, H - 1)
+    x_max_clipped = jp.clip(x_max, 0, W - 1)
+    y_max_clipped = jp.clip(y_max, 0, H - 1)
     boxes = merge(x_min_clipped, y_min_clipped, x_max_clipped, y_max_clipped)
     return boxes
 
