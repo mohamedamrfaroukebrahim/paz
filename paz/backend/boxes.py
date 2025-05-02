@@ -13,14 +13,6 @@ def split(boxes, keepdims=True, axis=1):
         return tuple(jp.squeeze(column, axis=-1) for column in coordinates)
 
 
-def compute_centers(boxes):
-    """Compute center coordinates of boxes."""
-    x_min, y_min, x_max, y_max = split(boxes)
-    center_x = (x_max + x_min) / 2.0
-    center_y = (y_max + y_min) / 2.0
-    return center_x, center_y
-
-
 def merge(coordinate_0, coordinate_1, coordinate_2, coordinate_3):
     coordinates = [coordinate_0, coordinate_1, coordinate_2, coordinate_3]
     return jp.concatenate(coordinates, axis=1)
@@ -58,14 +50,6 @@ def square(boxes):
     return merge(x_min, y_min, x_max, y_max).astype(int)
 
 
-def compute_sizes(boxes):
-    """Compute width and height from boxes in corner format."""
-    x_min, y_min, x_max, y_max = split(boxes)
-    W = x_max - x_min
-    H = y_max - y_min
-    return H, W
-
-
 def to_center_form(boxes):
     """Convert bounding boxes from corner to center form.
 
@@ -75,6 +59,21 @@ def to_center_form(boxes):
     # Returns:
         array: Boxes in center format [center_x, center_y, width, height]
     """
+
+    def compute_sizes(boxes):
+        """Compute width and height from boxes in corner format."""
+        x_min, y_min, x_max, y_max = split(boxes)
+        W = x_max - x_min
+        H = y_max - y_min
+        return H, W
+
+    def compute_centers(boxes):
+        """Compute center coordinates of boxes."""
+        x_min, y_min, x_max, y_max = split(boxes)
+        center_x = (x_max + x_min) / 2.0
+        center_y = (y_max + y_min) / 2.0
+        return center_x, center_y
+
     center_x, center_y = compute_centers(boxes)
     H, W = compute_sizes(boxes)
     return jp.concatenate([center_x, center_y, W, H], axis=1)
@@ -176,35 +175,23 @@ def compute_IOUs(boxes_A, boxes_B):
     return jp.clip(intersection_area / union_area, 0.0, 1.0)
 
 
-def filter_zero_area_boxes(boxes):
-    """
-    Identifies and filters out boxes with zero area.
-    """
-    if boxes.shape[0] == 0:
-        return boxes, jp.array([], dtype=jp.int32)
-
-    widths = boxes[:, 2] - boxes[:, 0]
-    heights = boxes[:, 3] - boxes[:, 1]
-    valid_area_mask = (widths > 0) & (heights > 0)
-
-    valid_indices = jp.where(valid_area_mask)[0]
-    filtered_boxes = boxes[valid_indices]
-
-    return filtered_boxes, valid_indices
-
-
 def apply_NMS(boxes, scores, iou_thresh=0.45, top_k=200):
 
-    filtered_boxes, original_valid_indices = filter_zero_area_boxes(boxes)
-    if filtered_boxes.shape[0] == 0:
-        return jp.array([], dtype=jp.int32)
-    filtered_scores = scores[original_valid_indices]
+    def filter_zero_area_boxes(boxes):
+        """
+        Identifies and filters out boxes with zero area.
+        """
+        if boxes.shape[0] == 0:
+            return boxes, jp.array([], dtype=jp.int32)
 
-    top_k = min(top_k, len(filtered_boxes))
-    sorted_score_args = jp.argsort(filtered_scores)[::-1]
-    top_k_score_args = sorted_score_args[:top_k]
-    top_k_boxes = jp.take(filtered_boxes, top_k_score_args, axis=0)
-    top_k_args = jp.arange(len(top_k_boxes))
+        widths = boxes[:, 2] - boxes[:, 0]
+        heights = boxes[:, 3] - boxes[:, 1]
+        valid_area_mask = (widths > 0) & (heights > 0)
+
+        valid_indices = jp.where(valid_area_mask)[0]
+        filtered_boxes = boxes[valid_indices]
+
+        return filtered_boxes, valid_indices
 
     def step(suppressed_mask, top_k_arg):
         is_suppressed = suppressed_mask[top_k_arg]
@@ -224,6 +211,16 @@ def apply_NMS(boxes, scores, iou_thresh=0.45, top_k=200):
         keep_this_box = jp.logical_not(is_suppressed)
         return new_suppressed_mask, keep_this_box
 
+    filtered_boxes, original_valid_indices = filter_zero_area_boxes(boxes)
+    if filtered_boxes.shape[0] == 0:
+        return jp.array([], dtype=jp.int32)
+    filtered_scores = scores[original_valid_indices]
+
+    top_k = min(top_k, len(filtered_boxes))
+    sorted_score_args = jp.argsort(filtered_scores)[::-1]
+    top_k_score_args = sorted_score_args[:top_k]
+    top_k_boxes = jp.take(filtered_boxes, top_k_score_args, axis=0)
+    top_k_args = jp.arange(len(top_k_boxes))
     initial_mask = jp.zeros(len(top_k_boxes), dtype=bool)
     _, keep_mask = jax.lax.scan(step, initial_mask, top_k_args)
 
