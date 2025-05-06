@@ -58,9 +58,9 @@ def square(boxes):
     return merge(x_min, y_min, x_max, y_max).astype(int)
 
 
-def compute_sizes(boxes):
+def compute_sizes(boxes, keepdims=True):
     """Compute width and height from boxes in corner format."""
-    x_min, y_min, x_max, y_max = split(boxes)
+    x_min, y_min, x_max, y_max = split(boxes, keepdims)
     W = x_max - x_min
     H = y_max - y_min
     return H, W
