@@ -311,3 +311,19 @@ def jitter(key, boxes, H, W, scale_range, shift_range):
     y_offset = jax.random.randint(keys[3], (), shift_min, shift_max + 1)
     boxes = translate(scale(boxes, scale_W, scale_H), x_offset, y_offset)
     return clip(boxes, H, W)
+
+
+def sample_positives(key, boxes, H, W, num_samples, scale_range, shift_range):
+
+    def select_random_box(key, boxes):
+        arg = jax.random.randint(key, shape=(), minval=0, maxval=len(boxes))
+        return jp.expand_dims(boxes[arg], 0)
+
+    def apply(boxes, key):
+        box = select_random_box(key, boxes)
+        box = jitter(key, box, H, W, scale_range, shift_range)
+        return boxes, jp.squeeze(box, axis=0)
+
+    keys = jax.random.split(key, num_samples)
+    _, jittered_boxes = jax.lax.scan(apply, boxes, keys)
+    return jittered_boxes.astype(boxes.dtype)

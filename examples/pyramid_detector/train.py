@@ -56,22 +56,6 @@ def augment(key, image):
     return image
 
 
-def sample_positives(key, boxes, H, W, num_samples, scale_range, shift_range):
-
-    def select_random_box(key, boxes):
-        arg = jax.random.randint(key, shape=(), minval=0, maxval=len(boxes))
-        return jp.expand_dims(boxes[arg], 0)
-
-    def apply(boxes, key):
-        box = select_random_box(key, boxes)
-        box = paz.boxes.jitter(key, box, H, W, scale_range, shift_range)
-        return boxes, jp.squeeze(box, axis=0)
-
-    keys = jax.random.split(key, num_samples)
-    _, jittered_boxes = jax.lax.scan(apply, boxes, keys)
-    return jittered_boxes
-
-
 def compute_samples(positive_ratio, batch_size):
     num_positives = int(positive_ratio * batch_size)
     num_negatives = batch_size - num_positives
@@ -87,7 +71,7 @@ def preprocess_boxes(boxes, H, W):
 def build_positives(key, boxes, H, W, num_samples, scale_range, shift_range):
     # sample_args = (key, boxes, H, W, num_samples, (0.8, 1.1), (-10, 10))
     sample_args = (key, boxes, H, W, num_samples, scale_range, shift_range)
-    positive_boxes = sample_positives(*sample_args)
+    positive_boxes = paz.boxes.sample_positives(*sample_args)
     positive_boxes = paz.boxes.square(boxes)
     positive_boxes = paz.boxes.clip(positive_boxes, H, W)
     return positive_boxes
@@ -108,8 +92,7 @@ def build_labels(
 
 def to_images(key, image, boxes, H_box, W_box):
     images = crop_and_resize(image, boxes, H_box, W_box)
-    positive_keys = jax.random.split(key, len(images))
-    images = jax.vmap(augment)(positive_keys, images)
+    images = jax.vmap(augment)(jax.random.split(key, len(images)), images)
     return images
 
 
