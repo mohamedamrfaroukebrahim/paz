@@ -22,7 +22,8 @@ class Generator(PyDataset):
         image = paz.image.load(self.images[batch_index])
         detections = self.detections[batch_index]
         inputs, labels = self.batch(self.keys[batch_index], detections, image)
-        return inputs / 255.0, labels
+        # return inputs / 255.0, labels
+        return inputs, labels
 
     def on_epoch_end(self):
         self.keys = jax.random.split(self.keys[-1], len(self.images))

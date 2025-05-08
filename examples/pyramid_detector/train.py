@@ -23,24 +23,41 @@ batch_images, batch_labels = generator.__getitem__(0)
 paz.image.show(paz.draw.mosaic(batch_images.astype("uint8")).astype("uint8"))
 
 
-model = keras.Sequential(
-    [
-        keras.Input(shape=(128, 128, 3)),
-        keras.layers.Conv2D(32, kernel_size=(3, 3), activation="relu"),
-        keras.layers.MaxPooling2D(pool_size=(2, 2)),
-        keras.layers.Conv2D(64, kernel_size=(3, 3), activation="relu"),
-        keras.layers.MaxPooling2D(pool_size=(2, 2)),
-        keras.layers.Flatten(),
-        keras.layers.Dropout(0.5),
-        keras.layers.Dense(1, activation="sigmoid"),
-    ]
+# model = keras.Sequential(
+#     [
+#         keras.Input(shape=(128, 128, 3)),
+#         keras.layers.Conv2D(32, kernel_size=(3, 3), activation="relu"),
+#         keras.layers.MaxPooling2D(pool_size=(2, 2)),
+#         keras.layers.Conv2D(64, kernel_size=(3, 3), activation="relu"),
+#         keras.layers.MaxPooling2D(pool_size=(2, 2)),
+#         keras.layers.Flatten(),
+#         keras.layers.Dense(1, activation="sigmoid"),
+#     ]
+# )
+
+base_model = keras.applications.Xception(
+    weights="imagenet",
+    input_shape=(128, 128, 3),
+    include_top=False,
 )
 
+base_model.trainable = False
 
-model.summary()
+inputs = keras.Input(shape=(128, 128, 3))
+scale_layer = keras.layers.Rescaling(scale=1 / 127.5, offset=-1)
+x = scale_layer(inputs)
+
+x = base_model(x, training=False)
+x = keras.layers.GlobalAveragePooling2D()(x)
+x = keras.layers.Dropout(0.2)(x)  # Regularize with dropout
+outputs = keras.layers.Dense(1)(x)
+model = keras.Model(inputs, outputs)
+model.summary(show_trainable=True)
 
 model.compile(
-    loss="binary_crossentropy", optimizer="adam", metrics=["accuracy"]
+    loss=keras.losses.BinaryCrossentropy(from_logits=True),
+    optimizer="adam",
+    metrics=[keras.metrics.BinaryAccuracy()],
 )
 
 model.fit(generator, batch_size=batch_size, epochs=epochs)
