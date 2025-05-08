@@ -1,19 +1,28 @@
+import jax
 from keras.utils import PyDataset
-import numpy as np
-
-
-def wrap(batches, names):
-    return dict(zip(names, batches))
+import paz
 
 
 class Generator(PyDataset):
-    def __init__(self, batcher, data):
-        self.data = data
-        self.batcher = batcher
+    def __init__(self, key, batch, images, detections, **kwargs):
+        super().__init__(**kwargs)
+        if len(images) != len(detections):
+            raise ValueError("Images and detections must have the same length.")
+        self.images = images
+        self.detections = detections
+        self.batch = batch
+        self.keys = jax.random.split(
+            key, len(images) + 1
+        )  # this should be number of batches
 
     def __len__(self):
-        return len(self.data)
+        return len(self.images)
 
     def __getitem__(self, batch_index):
-        inputs, labels = self.batcher(self.data[batch_index])
-        return inputs, labels
+        image = paz.image.load(self.images[batch_index])
+        detections = self.detections[batch_index]
+        inputs, labels = self.batch(self.keys[batch_index], detections, image)
+        return inputs / 255.0, labels
+
+    def on_epoch_end(self):
+        self.keys = jax.random.split(self.keys[-1], len(self.images))
