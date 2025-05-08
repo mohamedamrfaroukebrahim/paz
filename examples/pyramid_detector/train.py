@@ -1,25 +1,3 @@
-# scale the box to not be exactly always over the object
-# Training pipeline
-# sample n negatives
-# sample m positives
-# apply color jitter augmentation
-# apply image transformation augmentation
-# clip
-# crop
-# resize
-# return label and batch
-# train classifier
-# fine tune convnext
-# train mini-xception
-# build image pyramid detection pipeline
-# build ensemble
-# model = paz.models.MiniXception((*box_size, 3), 1)
-# model.summary()
-# TODO add this
-# positive_boxes = sample(positive_boxes, num_positives)
-# I can also sample positive samples.
-# Thus, I can also generate a large amount of positives and negatives.
-# Thus I can make batches.
 import os
 
 os.environ["KERAS_BACKEND"] = "jax"
@@ -38,21 +16,14 @@ key = jax.random.PRNGKey(777)
 sample_arg = 0
 
 
-def crop_and_resize(image, boxes, H_box, W_box):
-    def apply(box):
-        return paz.image.resize(paz.image.crop(image, box), (H_box, W_box))
-
-    return jp.array([apply(box) for box in boxes])
-
-
-def augment(key, image):
+def augment(key, image, angle_range=(-jp.pi / 6, jp.pi / 6)):
     key_0, key_1, key_2, key_3, key_4, key_5 = jax.random.split(key, 6)
     image = paz.image.random_flip_left_right(key_0, image)
-    # image = paz.image.random_saturation(key_1, image)
-    # image = paz.image.random_brightness(key_2, image)
-    # image = paz.image.random_contrast(key_3, image)
-    image = paz.image.random_hue(key_4, image, max_delta=0.0001)
-    # image = paz.image.random_rotation(key_5, image, -jp.pi / 6, jp.pi / 6)
+    image = paz.image.random_saturation(key_1, image)
+    image = paz.image.random_brightness(key_2, image)
+    image = paz.image.random_contrast(key_3, image)
+    image = paz.image.random_hue(key_4, image)
+    image = paz.image.random_rotation(key_5, image, *angle_range)
     return image
 
 
@@ -69,7 +40,6 @@ def preprocess_boxes(boxes, H, W):
 
 
 def build_positives(key, boxes, H, W, num_samples, scale_range, shift_range):
-    # sample_args = (key, boxes, H, W, num_samples, (0.8, 1.1), (-10, 10))
     sample_args = (key, boxes, H, W, num_samples, scale_range, shift_range)
     positive_boxes = paz.boxes.sample_positives(*sample_args)
     positive_boxes = paz.boxes.square(boxes)
@@ -91,7 +61,7 @@ def build_labels(
 
 
 def to_images(key, image, boxes, H_box, W_box):
-    images = crop_and_resize(image, boxes, H_box, W_box)
+    images = paz.boxes.crop_with_pad(boxes, image, H_box, W_box)
     images = jax.vmap(augment)(jax.random.split(key, len(images)), images)
     return images
 

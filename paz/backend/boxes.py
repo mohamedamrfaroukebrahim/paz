@@ -327,3 +327,40 @@ def sample_positives(key, boxes, H, W, num_samples, scale_range, shift_range):
     keys = jax.random.split(key, num_samples)
     _, jittered_boxes = jax.lax.scan(apply, boxes, keys)
     return jittered_boxes.astype(boxes.dtype)
+
+
+def filter_in_image(boxes, H, W):
+    """Filter boxes that are outside the image boundaries."""
+    x_min, y_min, x_max, y_max = split(boxes, keepdims=False)
+    valid_mask = jp.logical_and(
+        jp.logical_and(x_min >= 0, y_min >= 0),
+        jp.logical_and(x_max < W, y_max < H),
+    )
+    return boxes[valid_mask]
+
+
+def crop_with_pad(boxes, image, box_H, box_W, pad_value=0):
+    x_min, y_min, x_max, y_max = split(boxes, False)
+    boxes_H, boxes_W = compute_sizes(boxes, False)
+    delta_x = jp.arange(box_W)
+    delta_y = jp.arange(box_H)
+
+    H, W = paz.image.get_size(image)
+    x_args = jp.expand_dims(x_min[:, None] + delta_x[None, :], axis=1)
+    y_args = jp.expand_dims(y_min[:, None] + delta_y[None, :], axis=2)
+    x_args_in_image_bounds = (x_args >= 0) & (x_args < W)
+    y_args_in_image_bounds = (y_args >= 0) & (y_args < H)
+
+    x_offset_in_box_bounds = delta_x[None, :] < boxes_W[:, None]
+    y_offset_in_box_bounds = delta_y[None, :] < boxes_H[:, None]
+    x_offset_in_box_bounds = x_offset_in_box_bounds[:, None, :]
+    y_offset_in_box_bounds = y_offset_in_box_bounds[:, :, None]
+
+    mask_x = x_offset_in_box_bounds & x_args_in_image_bounds
+    mask_y = y_offset_in_box_bounds & y_args_in_image_bounds
+    valid_mask = jp.expand_dims(mask_y & mask_x, axis=3)
+    safe_x_args = jp.clip(x_args, 0, W - 1)
+    safe_y_args = jp.clip(y_args, 0, H - 1)
+    gathered_image = image[safe_y_args, safe_x_args, :]
+    # pad = jp.full_like(gathered_image, pad_value, dtype=image.dtype)
+    return jp.where(valid_mask, gathered_image, pad_value)
