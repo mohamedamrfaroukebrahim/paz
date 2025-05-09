@@ -317,3 +317,15 @@ def random_rotation(
 def random_flip_left_right(key, image):
     do_flip = jax.random.bernoulli(key)
     return jax.lax.cond(do_flip, flip_left_right, lambda x: x, image)
+
+
+def pyramid(image, scales=[1.0, 0.8, 0.64, 0.512, 0.4096, 0.3277, 0.2621]):
+    H, W = paz.image.get_size(image)
+
+    pyramid = []
+    for scale in sorted(scales, reverse=True):
+        pyramid_H = int(round(H * scale))
+        pyramid_W = int(round(W * scale))
+        scaled_image = paz.image.resize(image, (pyramid_H, pyramid_W))
+        pyramid.append(scaled_image)
+    return pyramid

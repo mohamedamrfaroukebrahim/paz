@@ -14,7 +14,6 @@ from generator import Generator
 from models import FineTuneXception, SimpleCNN
 import plotter
 
-
 parser = argparse.ArgumentParser(description="Train fish classifier")
 parser.add_argument("--seed", default=777, type=int)
 parser.add_argument("--root", default="experiments", type=str)

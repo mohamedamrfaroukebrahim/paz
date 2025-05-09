@@ -33,3 +33,14 @@ def FineTuneXception(shape, num_classes):
     x = keras.layers.Dropout(0.2)(x)
     outputs = keras.layers.Dense(num_classes)(x)
     return keras.Model(inputs, outputs)
+
+
+if __name__ == "__main__":
+    import os
+
+    os.environ["KERAS_BACKEND"] = "jax"
+    import jax.numpy as jp
+
+    model = SimpleCNN((128, 128, 3), 1)
+    logits = model(jp.zeros((10, 128, 128, 3)))
+    print(logits.shape)

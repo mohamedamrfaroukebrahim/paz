@@ -50,27 +50,27 @@ def augment(key, image, angle_range=(-jp.pi / 8, jp.pi / 8)):
 # validates that all images are the same size
 # print(jp.unique(jp.array([paz.image.get_size(image)[0] for image in images])))
 
-# plotter.histogram_uniques(boxes_per_image, "Number of boxes")
-# plt.show()
+plotter.histogram_uniques(boxes_per_image, "Number of boxes")
+plt.show()
 
-# dataset_H, dataset_W = [], []
-# for detections in tqdm(labels):
-#     boxes = paz.boxes.denormalize(
-#         paz.detection.get_boxes(detections), 1080, 1920
-#     )
-#     box_H, box_W = paz.boxes.compute_sizes(boxes, keepdims=False)
-#     box_H = box_H.tolist()
-#     box_W = box_W.tolist()
-#     dataset_H = dataset_H + box_H
-#     dataset_W = dataset_W + box_W
-# dataset_H = jp.array(dataset_H)
-# dataset_W = jp.array(dataset_W)
+dataset_H, dataset_W = [], []
+for detections in tqdm(labels):
+    boxes = paz.boxes.denormalize(
+        paz.detection.get_boxes(detections), 1080, 1920
+    )
+    box_H, box_W = paz.boxes.compute_sizes(boxes, keepdims=False)
+    box_H = box_H.tolist()
+    box_W = box_W.tolist()
+    dataset_H = dataset_H + box_H
+    dataset_W = dataset_W + box_W
+dataset_H = jp.array(dataset_H)
+dataset_W = jp.array(dataset_W)
 
-# plotter.histogram(dataset_H, "Boxes Height")
-# plt.show()
+plotter.histogram(dataset_H, "Boxes Height")
+plt.show()
 
-# plotter.histogram(dataset_W, "Boxes Width")
-# plt.show()
+plotter.histogram(dataset_W, "Boxes Width")
+plt.show()
 
 
 # sample_arg = 0
