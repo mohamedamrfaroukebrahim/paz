@@ -1,3 +1,4 @@
+import os
 import jax.numpy as jp
 import matplotlib.pyplot as plt
 import numpy as np
@@ -65,3 +66,24 @@ def histogram_uniques(data, xlabel, ylabel="Frequency"):
     axis.set_ylabel(ylabel, labelpad=20)
     figure.tight_layout()
     return figure
+
+
+def timeseries(data, filepath, legends=None, y_label="loss", x_label="step"):
+    plt.rcParams["text.usetex"] = True
+    plt.rcParams["font.size"] = 20
+    plt.rcParams["font.family"] = "ptm"
+    plt.rcParams["font.serif"] = "phv"
+
+    figure, axis = plt.subplots()
+    if isinstance(data, list):
+        for x in data:
+            axis.plot(x)
+
+    if legends is not None:
+        axis.legend(legends, prop={"size": 10}, frameon=False)
+    axis.set_ylabel(y_label)
+    axis.set_xlabel(x_label)
+    axis.spines["top"].set_visible(False)
+    axis.spines["right"].set_visible(False)
+    figure.savefig(filepath, bbox_inches="tight")
+    plt.close()
