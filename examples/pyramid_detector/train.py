@@ -67,7 +67,7 @@ callbacks = [
     keras.callbacks.ReduceLROnPlateau(patience=args.scale_patience),
     keras.callbacks.CSVLogger(os.path.join(root, "log.csv")),
     keras.callbacks.ModelCheckpoint(
-        os.path.join(root, f"{args.model}.h5"), save_best_only=True
+        os.path.join(root, f"{args.model}.keras"), save_best_only=True
     ),
 ]
 
