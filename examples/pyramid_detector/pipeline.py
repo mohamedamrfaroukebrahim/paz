@@ -9,6 +9,16 @@ def compute_samples(positive_ratio, batch_size):
     return num_positives, num_negatives
 
 
+def compute_num_positives(positive_ratio, batch_size):
+    return int(positive_ratio * batch_size)
+
+
+def compute_num_negatives(positive_ratio, batch_size):
+    num_positives = compute_num_positives(positive_ratio, batch_size)
+    num_negatives = batch_size - num_positives
+    return num_negatives
+
+
 def augment(key, image, angle_range=(-jp.pi / 8, jp.pi / 8)):
     key_0, key_1, key_2, key_3, key_4, key_5 = jax.random.split(key, 6)
     image = paz.image.random_flip_left_right(key_0, image)
@@ -20,21 +30,40 @@ def augment(key, image, angle_range=(-jp.pi / 8, jp.pi / 8)):
     return image
 
 
-def build_labels(key, positive_images, negative_images):
-    positive_labels = jp.full(len(positive_images), 1.0)
-    negative_labels = jp.full(len(negative_images), 0.0)
-    images = jp.concatenate([negative_images, positive_images], axis=0)
-    labels = jp.concatenate([negative_labels, positive_labels], axis=0)
+def augment_batch(key, images, angle_range=(-jp.pi / 8, jp.pi / 8)):
+    keys = jax.random.split(key, len(images))
+    images = jax.vmap(augment)(keys, images)
+    return images
+
+
+def shuffle(key, images, labels):
     shuffled_args = jax.random.permutation(key, jp.arange(len(images)))
     images = images[shuffled_args]
     labels = labels[shuffled_args]
     return images, labels
 
 
+def label(positive_images, negative_images):
+    positive_labels = jp.full(len(positive_images), 1.0)
+    negative_labels = jp.full(len(negative_images), 0.0)
+    images = jp.concatenate([negative_images, positive_images], axis=0)
+    labels = jp.concatenate([negative_labels, positive_labels], axis=0)
+    return images, labels
+
+
+def boxes_to_images(key, boxes, image, box_size, pad, augment=True):
+    boxes = paz.boxes.square(boxes)
+    images = paz.boxes.crop_with_pad(boxes, image, *box_size, pad)
+    if augment:
+        images = augment_batch(key, images)
+    return images
+
+
 def batch(
     key,
     detections,
     image,
+    augment=True,
     box_size=(128, 128),
     positive_ratio=0.5,
     batch_size=32,
@@ -46,38 +75,18 @@ def batch(
     size = paz.image.get_size(image)
     positive_boxes = paz.detection.get_boxes(detections)
     positive_boxes = paz.boxes.denormalize(positive_boxes, *size)
-    num_positives, num_negatives = compute_samples(positive_ratio, batch_size)
-    negative_boxes = paz.boxes.sample_negatives(
-        keys[0],
-        positive_boxes,
-        *size,
-        box_size,
-        num_negatives,
-        num_negatives * 3,
-    )
 
-    positive_boxes = paz.boxes.sample_positives(
-        keys[1],
-        positive_boxes,
-        *size,
-        num_positives,
-        scale_range,
-        shift_range,
-    )
+    num_negatives = compute_num_negatives(positive_ratio, batch_size)
+    args = (positive_boxes, *size, box_size, num_negatives, num_negatives * 3)
+    negative_boxes = paz.boxes.sample_negatives(keys[0], *args)
 
-    positive_boxes = paz.boxes.square(positive_boxes)
-    negative_boxes = paz.boxes.square(negative_boxes)
-    positive_images = paz.boxes.crop_with_pad(
-        positive_boxes, image, *box_size, pad
-    )
-    positive_images = jax.vmap(augment)(
-        jax.random.split(keys[2], len(positive_images)), positive_images
-    )
+    num_positives = compute_num_positives(positive_ratio, batch_size)
+    args = (positive_boxes, *size, num_positives, scale_range, shift_range)
+    positive_boxes = paz.boxes.sample_positives(keys[1], *args)
 
-    negative_images = paz.boxes.crop_with_pad(
-        negative_boxes, image, *box_size, pad
-    )
-    negative_images = jax.vmap(augment)(
-        jax.random.split(keys[3], len(negative_images)), negative_images
-    )
-    return build_labels(keys[4], positive_images, negative_images)
+    to_images = paz.lock(boxes_to_images, image, box_size, pad, augment)
+    positive_images = to_images(keys[2], positive_boxes)
+    negative_images = to_images(keys[3], negative_boxes)
+    images, labels = label(positive_images, negative_images)
+    images, labels = shuffle(keys[4], images, labels)
+    return images, labels

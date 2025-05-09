@@ -4,7 +4,7 @@ import paz
 
 
 class Generator(PyDataset):
-    def __init__(self, key, batch, images, detections, **kwargs):
+    def __init__(self, key, images, detections, batch, **kwargs):
         super().__init__(**kwargs)
         if len(images) != len(detections):
             raise ValueError("Images and detections must have the same length.")
