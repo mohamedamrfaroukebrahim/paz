@@ -17,6 +17,7 @@ import plotter
 parser = argparse.ArgumentParser(description="Train fish classifier")
 parser.add_argument("--seed", default=777, type=int)
 parser.add_argument("--root", default="experiments", type=str)
+parser.add_argument("--label", default=None)
 parser.add_argument("--model", default="simple", type=str)
 parser.add_argument("--box_H", default=128, type=int)
 parser.add_argument("--box_W", default=128, type=int)
@@ -28,8 +29,9 @@ parser.add_argument("--stop_patience", default=6, type=int)
 parser.add_argument("--scale_patience", default=4, type=int)
 args = parser.parse_args()
 key = jax.random.PRNGKey(args.seed)
+keras.utils.set_random_seed(args.seed)
 
-root = paz.logger.make_timestamped_directory(args.root)
+root = paz.logger.make_timestamped_directory(args.root, args.label)
 paz.logger.write_dictionary(args.__dict__, root, "hyper-parameters.json")
 
 
