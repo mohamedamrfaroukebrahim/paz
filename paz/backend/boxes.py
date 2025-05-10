@@ -364,3 +364,12 @@ def crop_with_pad(boxes, image, box_H, box_W, pad_value=0):
     gathered_image = image[safe_y_args, safe_x_args, :]
     # pad = jp.full_like(gathered_image, pad_value, dtype=image.dtype)
     return jp.where(valid_mask, gathered_image, pad_value)
+
+
+def resize(boxes, H_box, W_box):
+    x_center, y_center = paz.boxes.compute_centers(boxes)
+    x_min = x_center - (W_box / 2.0)
+    y_min = y_center - (H_box / 2.0)
+    x_max = x_center + (W_box / 2.0)
+    y_max = y_center + (H_box / 2.0)
+    return jp.stack([x_min, y_min, x_max, y_max], axis=-1).astype(boxes.dtype)
