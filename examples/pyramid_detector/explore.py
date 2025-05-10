@@ -43,7 +43,7 @@ def augment(key, image, angle_range=(-jp.pi / 8, jp.pi / 8)):
     image = paz.image.random_brightness(key_2, image)
     image = paz.image.random_contrast(key_3, image, 0.9, 1.1)
     image = paz.image.random_hue(key_4, image)
-    image = paz.image.random_rotation(key_5, image, *angle_range)
+    # image = paz.image.random_rotation(key_5, image, *angle_range)
     return image
 
 
@@ -53,24 +53,24 @@ def augment(key, image, angle_range=(-jp.pi / 8, jp.pi / 8)):
 plotter.histogram_uniques(boxes_per_image, "Number of boxes")
 plt.show()
 
-dataset_H, dataset_W = [], []
-for detections in tqdm(labels):
-    boxes = paz.boxes.denormalize(
-        paz.detection.get_boxes(detections), 1080, 1920
-    )
-    box_H, box_W = paz.boxes.compute_sizes(boxes, keepdims=False)
-    box_H = box_H.tolist()
-    box_W = box_W.tolist()
-    dataset_H = dataset_H + box_H
-    dataset_W = dataset_W + box_W
-dataset_H = jp.array(dataset_H)
-dataset_W = jp.array(dataset_W)
+# dataset_H, dataset_W = [], []
+# for detections in tqdm(labels):
+#     boxes = paz.boxes.denormalize(
+#         paz.detection.get_boxes(detections), 1080, 1920
+#     )
+#     box_H, box_W = paz.boxes.compute_sizes(boxes, keepdims=False)
+#     box_H = box_H.tolist()
+#     box_W = box_W.tolist()
+#     dataset_H = dataset_H + box_H
+#     dataset_W = dataset_W + box_W
+# dataset_H = jp.array(dataset_H)
+# dataset_W = jp.array(dataset_W)
 
-plotter.histogram(dataset_H, "Boxes Height")
-plt.show()
+# plotter.histogram(dataset_H, "Boxes Height")
+# plt.show()
 
-plotter.histogram(dataset_W, "Boxes Width")
-plt.show()
+# plotter.histogram(dataset_W, "Boxes Width")
+# plt.show()
 
 
 # sample_arg = 0
@@ -204,7 +204,9 @@ def batch(
     )
 
     positive_boxes = paz.boxes.square(positive_boxes)
+    positive_boxes = paz.boxes.resize(positive_boxes, *box_size)
     negative_boxes = paz.boxes.square(negative_boxes)
+    negative_boxes = paz.boxes.resize(negative_boxes, *box_size)
     positive_images = paz.boxes.crop_with_pad(
         positive_boxes, image, *box_size, pad
     )
