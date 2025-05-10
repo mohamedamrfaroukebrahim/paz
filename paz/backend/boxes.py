@@ -372,4 +372,4 @@ def resize(boxes, H_box, W_box):
     y_min = y_center - (H_box / 2.0)
     x_max = x_center + (W_box / 2.0)
     y_max = y_center + (H_box / 2.0)
-    return jp.stack([x_min, y_min, x_max, y_max], axis=-1).astype(boxes.dtype)
+    return merge(x_min, y_min, x_max, y_max).astype(dtype=boxes.dtype)
