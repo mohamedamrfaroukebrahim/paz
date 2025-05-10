@@ -43,6 +43,12 @@ batch_valid = jax.jit(paz.partial(batch, augment=False))
 train_generator = Generator(key, train_images, train_labels, batch_train)
 valid_generator = Generator(key, valid_images, valid_labels, batch_valid)
 
+batch_images = train_generator.__getitem__(0)[0]
+paz.image.write(
+    os.path.join(root, "train_batch.png"),
+    paz.draw.mosaic(batch_images.astype("uint8"), border=5).astype("uint8"),
+)
+
 
 Model = {"xception": FineTuneXception, "simple": SimpleCNN}
 model = Model[args.model]((args.box_H, args.box_W, 3), num_classes=1)
