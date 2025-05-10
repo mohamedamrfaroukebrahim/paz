@@ -53,6 +53,7 @@ def label(positive_images, negative_images):
 
 def boxes_to_images(key, boxes, image, box_size, pad, augment=True):
     boxes = paz.boxes.square(boxes)
+    boxes = paz.boxes.resize(boxes, *box_size)
     images = paz.boxes.crop_with_pad(boxes, image, *box_size, pad)
     if augment:
         images = augment_batch(key, images)
