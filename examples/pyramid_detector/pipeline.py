@@ -26,7 +26,7 @@ def augment(key, image, angle_range=(-jp.pi / 8, jp.pi / 8)):
     image = paz.image.random_brightness(key_2, image)
     image = paz.image.random_contrast(key_3, image, 0.9, 1.1)
     image = paz.image.random_hue(key_4, image)
-    image = paz.image.random_rotation(key_5, image, *angle_range)
+    # image = paz.image.random_rotation(key_5, image, *angle_range)
     return image
 
 
