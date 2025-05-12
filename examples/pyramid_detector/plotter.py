@@ -1,4 +1,4 @@
-import os
+# import os
 import jax.numpy as jp
 import matplotlib.pyplot as plt
 import numpy as np
@@ -87,3 +87,37 @@ def timeseries(data, filepath, legends=None, y_label="loss", x_label="step"):
     axis.spines["right"].set_visible(False)
     figure.savefig(filepath, bbox_inches="tight")
     plt.close()
+
+
+def time_series(data, filepath, y_range, x_label, y_label, legends=None):
+    plt.rcParams["text.usetex"] = True
+    plt.rcParams["font.size"] = 20
+    plt.rcParams["font.family"] = "ptm"
+    plt.rcParams["font.serif"] = "phv"
+
+    figure, axis = plt.subplots()
+    if isinstance(data, list):
+        for x in data:
+            axis.plot(x)
+    else:
+        axis.plot(data)
+
+    if legends is not None:
+        axis.legend(legends, prop={"size": 10}, frameon=False)
+    axis.set_ylabel(y_label)
+    axis.set_xlabel(x_label)
+    axis.spines["top"].set_visible(False)
+    axis.spines["right"].set_visible(False)
+    axis.xaxis.labelpad = 10
+    axis.yaxis.labelpad = 10
+
+    # axis.set_xlim(x_range)
+    axis.set_ylim(y_range)
+    figure.savefig(filepath, bbox_inches="tight")
+    plt.close()
+
+
+def accuracy(accuracies, filepath, x_label):
+    return time_series(
+        accuracies, filepath, (0, 1), x_label, y_label="Accuracy"
+    )
