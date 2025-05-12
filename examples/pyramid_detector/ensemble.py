@@ -13,8 +13,7 @@ def load(wildcard):
 
 
 def predict(models, image, activation=jax.nn.sigmoid):
-    image = jp.expand_dims(image, axis=0)
-    return jp.array([activation(jp.squeeze(model(image))) for model in models])
+    return jp.array([activation(model(image)) for model in models])
 
 
 def compute_entropy(predictions, num_bins=10):
@@ -54,10 +53,11 @@ if __name__ == "__main__":
     batch_valid = jax.jit(paz.partial(batch, augment=False))
     train_generator = Generator(key, images, labels, batch_valid)
     batch_images, batch_labels = train_generator.__getitem__(0)
-    image = batch_images[-3]
-    label = batch_labels[-3]
+    sample_arg = 0
+    image = batch_images[sample_arg]
+    label = batch_labels[sample_arg]
     paz.image.show(image)
-    predictions = predict(models, image)
+    predictions = predict(models, image[None, ...])[:, 0, 0]
     print("Entropy:", compute_entropy(predictions, num_bins=10))
     print("Label:", label, "|", "Mean Pred:", jp.mean(predictions))
     plot_entropy(predictions, num_bins=10)
