@@ -2,16 +2,22 @@ import jax
 import jax.numpy as jp
 
 
-def _compute_output_shape(H, W, patch_size, strides):
+def _compute_output_shape(H, W, patch_size, strides, padding="valid"):
     H_patch, W_patch = patch_size
     y_stride, x_stride = strides
-    H_out = (H + y_stride - 1) // y_stride
-    W_out = (W + x_stride - 1) // x_stride
+    if padding == "same":
+        H_out = (H + y_stride - 1) // y_stride
+        W_out = (W + x_stride - 1) // x_stride
+    elif padding == "valid":
+        H_out = (H - H_patch) // y_stride + 1
+        W_out = (W - W_patch) // x_stride + 1
+    else:
+        raise ValueError(f"Unknown padding type: {padding}")
     return H_out, W_out
 
 
 def _compute_padding(H, W, patch_size, strides):
-    H_out, W_out = _compute_output_shape(H, W, patch_size, strides)
+    H_out, W_out = _compute_output_shape(H, W, patch_size, strides, "same")
     H_patch, W_patch = patch_size
     y_stride, x_stride = strides
 
@@ -42,7 +48,8 @@ def _patch(image, y_min_args, x_min_args, patch_size):
     return jax.vmap(patch_rows)(y_min_args)
 
 
-def _build_min_args(H, W, strides):
+def _build_min_args(H, W, patch_size, strides):
+    H_patch, W_patch = patch_size
     y_stride, x_stride = strides
     y_min_args = jp.arange(H) * y_stride
     x_min_args = jp.arange(W) * x_stride
@@ -51,11 +58,10 @@ def _build_min_args(H, W, strides):
 
 def patch_same(image, patch_size, strides):
     H, W = paz.image.get_size(image)
-    H_out, W_out = _compute_output_shape(H, W, patch_size, strides)
+    H_out, W_out = _compute_output_shape(H, W, patch_size, strides, "same")
     pad_widths = _compute_padding(H, W, patch_size, strides)
     padded_image = paz.image.pad(image, *pad_widths)
-    y_min_args, x_min_args = _build_min_args(H_out, W_out, strides)
-
+    y_min_args, x_min_args = _build_min_args(H_out, W_out, patch_size, strides)
     return _patch(padded_image, y_min_args, x_min_args, patch_size)
 
 
@@ -63,8 +69,13 @@ def patch(image, patch_size, strides):
     H, W, C = image.shape
     y_stride, x_stride = strides
     H_patch, W_patch = patch_size
-    y_min_args = jp.arange(0, H - H_patch + 1, y_stride)
-    x_min_args = jp.arange(0, W - W_patch + 1, x_stride)
+    H_out, W_out = _compute_output_shape(H, W, patch_size, strides, "valid")
+    y_min_args, x_min_args = _build_min_args(H_out, W_out, patch_size, strides)
+    # y_min_args = jp.arange(0, H - H_patch + 1, y_stride)
+    # x_min_args = jp.arange(0, W - W_patch + 1, x_stride)
+    # print(y_min_args, x_min_args)
+    # y_min_args = jp.arange(H) * y_stride
+    # x_min_args = jp.arange(W) * x_stride
 
     return _patch(image, y_min_args, x_min_args, patch_size)
 
@@ -133,21 +144,16 @@ if __name__ == "__main__":
     H = 480
     W = 640
     window_size = 128
-    stride = 128
+    strides = (128, 128)
     padding = "same"
     image = paz.image.resize(image, (H, W))
-    print(image.dtype, image.shape)
 
     if padding == "valid":
-        patches = patch(image, (window_size, window_size), (stride, stride))
-        boxes = boxes_patch(H, W, (window_size, window_size), (stride, stride))
+        patches = patch(image, (window_size, window_size), strides)
+        boxes = boxes_patch(H, W, (window_size, window_size), strides)
     else:
-        patches = patch_same(
-            image, (window_size, window_size), (stride, stride)
-        )
-        boxes = get_patch_boxes_same(
-            H, W, (window_size, window_size), (stride, stride)
-        )
+        patches = patch_same(image, (window_size, window_size), strides)
+        boxes = get_patch_boxes_same(H, W, (window_size, window_size), strides)
     num_row, num_cols, H_patch, W_patch, C = patches.shape
     paz.image.show(
         paz.draw.mosaic(
@@ -158,4 +164,5 @@ if __name__ == "__main__":
     )
 
     boxes = boxes.reshape(-1, 4)
+    print(patches.shape)
     paz.image.show(paz.draw.boxes(image.astype("uint8"), boxes))
