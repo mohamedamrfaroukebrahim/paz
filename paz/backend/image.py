@@ -133,6 +133,10 @@ def get_size(image):
     return H, W
 
 
+def num_channels(image):
+    return image.shape[-1]
+
+
 def crop(image, box):
     x_min, y_min, x_max, y_max = box
     return image[y_min:y_max, x_min:x_max, :]
@@ -329,3 +333,12 @@ def pyramid(image, scales=[1.0, 0.8, 0.64, 0.512, 0.4096, 0.3277, 0.2621]):
         scaled_image = paz.image.resize(image, (pyramid_H, pyramid_W))
         pyramid.append(scaled_image)
     return pyramid
+
+
+def pad(image, top, bottom, left, right, mode="reflect", pad_value=0):
+    pad_widths = ((top, bottom), (left, right), (0, 0))
+    if mode == "constant":
+        image = jp.pad(image, pad_widths, mode=mode, constant_values=pad_value)
+    else:
+        image = jp.pad(image, pad_widths, mode=mode)
+    return image
