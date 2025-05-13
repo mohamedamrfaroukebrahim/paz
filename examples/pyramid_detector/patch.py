@@ -13,10 +13,10 @@ def boxes_patch(H, W, patch_size, strides, padding="valid"):
     if padding == "same":
         y_needed_pad = max(0, (H_out - 1) * y_stride + H_patch - H)
         x_needed_pad = max(0, (W_out - 1) * x_stride + W_patch - W)
-        pad_top = y_needed_pad // 2
-        pad_left = x_needed_pad // 2
-        y_min_args = y_min_args - pad_top
-        x_min_args = x_min_args - pad_left
+        y_minor_half_residue = y_needed_pad // 2
+        x_minor_half_residue = x_needed_pad // 2
+        y_min_args = y_min_args - y_minor_half_residue  # pad top
+        x_min_args = x_min_args - x_minor_half_residue  # pad left
 
     def box_one(y_min, x_min):
         y_max = y_min + H_patch
