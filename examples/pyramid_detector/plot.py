@@ -10,7 +10,7 @@ def build_configuration(mode="max", y_units=r"\%"):
     plt.rcParams["font.size"] = 20
     plt.rcParams["font.family"] = "ptm"
     plt.rcParams["font.serif"] = "phv"
-    plt.rcParams["legend.loc"] = "upper left"
+    # plt.rcParams["legend.loc"] = "upper left"
     yellow = (1.0, 0.65, 0.0)
     gray = (0.662, 0.647, 0.576)
     px = 1 / plt.rcParams["figure.dpi"]  # pixel in inches
@@ -65,7 +65,6 @@ def set_vertical_line(axis, data, y_max, config):
     y_shift = 0.075 * y_max
     axis.axvline(x, color=config.color_2, linestyle="--", ymax=y_line)
     text = f"{y:.2f}" + f" {config.y_units}"
-    print(x, len(text), text)
     x_shift = -2.5
     axis.text(
         x + x_shift,
@@ -113,7 +112,11 @@ def plot_same_axis(axis, ys, y_max, legends, config):
         y = y_max * np.array(ys[y_arg])
         axis.plot(y, "-o", color=config.palette[y_arg])
     # legends must be reversed to match the order of the lines
-    axis.legend(legends[::-1], prop={"size": 10}, frameon=False)
+    if config.mode == "max":
+        location = "upper left"
+    else:
+        location = "upper right"
+    axis.legend(legends[::-1], prop={"size": 10}, frameon=False, loc=location)
 
 
 def accuracies(ys, legends, filepath):

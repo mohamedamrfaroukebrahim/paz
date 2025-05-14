@@ -41,6 +41,9 @@ if __name__ == "__main__":
     os.environ["KERAS_BACKEND"] = "jax"
     import jax.numpy as jp
 
-    model = SimpleCNN((128, 128, 3), 1)
+    # model = SimpleCNN((128, 128, 3), 1)
+    from paz.models.classification import MiniXception
+
+    model = MiniXception(input_shape=(128, 128, 3), num_classes=1)
     logits = model(jp.zeros((10, 128, 128, 3)))
     print(logits.shape)
