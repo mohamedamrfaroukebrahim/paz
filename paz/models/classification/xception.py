@@ -274,8 +274,9 @@ def MiniXception(input_shape, num_classes):
        - [Real-time Convolutional Neural Networks for Emotion and
             Gender Classification](https://arxiv.org/abs/1710.07557)
     """
-    stem_kernels = [32, 64]
-    block_data = [128, 128, 256, 256, 512, 512, 1024]
+    stem_kernels = [5, 8]
+    # block_data = [128, 128, 256, 256, 512, 512, 1024]
+    block_data = [16, 32, 64, 128]
     model_inputs = (input_shape, num_classes, stem_kernels, block_data)
     model = build_xception(*model_inputs)
     model._name = "MINI-XCEPTION"
