@@ -18,15 +18,15 @@ def boxes_patch(H, W, patch_size, strides, padding="valid"):
         y_min_args = y_min_args - y_minor_half_residue  # pad top
         x_min_args = x_min_args - x_minor_half_residue  # pad left
 
-    def box_one(y_min, x_min):
+    def make_one_box(y_min, x_min):
         y_max = y_min + H_patch
         x_max = x_min + W_patch
         return jp.array([x_min, y_min, x_max, y_max], dtype=jp.int32)
 
-    def box_rows(y_min_args):
-        return jax.vmap(box_one, in_axes=(None, 0))(y_min_args, x_min_args)
+    def make_box_rows(y_min_args):
+        return jax.vmap(make_one_box, in_axes=(None, 0))(y_min_args, x_min_args)
 
-    return jax.vmap(box_rows)(y_min_args)
+    return jax.vmap(make_box_rows)(y_min_args)
 
 
 if __name__ == "__main__":
