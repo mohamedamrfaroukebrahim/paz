@@ -1,6 +1,8 @@
 #!/bin/bash
 
-NUM_ENSEMBLES=20
+NUM_ENSEMBLES=100
+MODEL_NAME="minixception"
+OPTIMIZER="adam"
 
 echo "Starting training for $NUM_ENSEMBLES ensembles"
 
@@ -11,9 +13,8 @@ do
 
   echo "----------------------------------------"
   echo "Running Ensemble $i (Seed: $seed_value, Label: $label_string):"
-  echo "Command: python3 train.py --seed $seed_value --label $label_string"
   echo "----------------------------------------"
-  python3 train.py --seed "$seed_value" --label "$label_string"
+  python3 train.py --seed "$seed_value" --label "$label_string" --model "$MODEL_NAME" --optimizer "$OPTIMIZER"
   sleep 1
 done
 
