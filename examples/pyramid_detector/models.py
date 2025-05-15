@@ -159,12 +159,12 @@ def MiniXception(
 
     # module 4
     residual = layers.Conv2D(
-        128, (1, 1), strides=(1, 1), padding="same", use_bias=False
+        64, (1, 1), strides=(1, 1), padding="same", use_bias=False
     )(x)
     residual = layers.BatchNormalization()(residual)
 
     x = layers.SeparableConv2D(
-        128,
+        64,
         (3, 3),
         padding="same",
         use_bias=False,
@@ -172,7 +172,7 @@ def MiniXception(
     x = layers.BatchNormalization()(x)
     x = layers.Activation("relu")(x)
     x = layers.SeparableConv2D(
-        128,
+        64,
         (3, 3),
         padding="same",
         use_bias=False,
@@ -183,9 +183,11 @@ def MiniXception(
 
     x = layers.Conv2D(num_classes, (3, 3), padding="same")(x)
     x = layers.GlobalAveragePooling2D()(x)
+    x = layers.Dropout(1.0 / 3.0)(x)  # Regularize with dropout
     output = layers.Activation(classifier_activation, name="predictions")(x)
     return keras.Model(image_inputs, output)
 
 
 if __name__ == "__main__":
-    model = MiniXception((128, 128, 3), 1)
+    model1 = MiniXception((128, 128, 3), 1)
+    model2 = SimpleCNN((128, 128, 3), 1)
