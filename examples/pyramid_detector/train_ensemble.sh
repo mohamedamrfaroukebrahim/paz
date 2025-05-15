@@ -2,7 +2,7 @@
 
 NUM_ENSEMBLES=100
 MODEL_NAME="minixception"
-OPTIMIZER="adam"
+OPTIMIZER="adamw"
 
 echo "Starting training for $NUM_ENSEMBLES ensembles"
 

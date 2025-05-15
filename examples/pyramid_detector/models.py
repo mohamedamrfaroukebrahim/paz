@@ -1,4 +1,5 @@
 import keras
+from keras import layers
 
 
 def SimpleCNN(shape, num_classes):
@@ -35,15 +36,156 @@ def FineTuneXception(shape, num_classes):
     return keras.Model(inputs, outputs)
 
 
+def MiniXception(
+    input_shape,
+    num_classes,
+    classifier_activation="softmax",
+    preprocess=None,
+):
+    """Build MiniXception (see references).
+
+    # Arguments
+        input_shape: List of three integers e.g. ``[H, W, 3]``
+        num_classes: Int.
+        weights: ``None`` or string with pre-trained dataset. Valid datasets
+            include only ``FER``.
+
+    # Returns
+        Keras model.
+
+    # References
+       - [Real-time Convolutional Neural Networks for Emotion and
+            Gender Classification](https://arxiv.org/abs/1710.07557)
+    """
+
+    # base
+    image_inputs = layers.Input(input_shape)
+    if preprocess is None:
+        x = layers.Conv2D(
+            5,
+            (3, 3),
+            strides=(1, 1),
+            use_bias=False,
+        )(image_inputs)
+    elif preprocess == "rescale":
+        x = layers.Rescaling(scale=1 / 127.5, offset=-1)(image_inputs)
+    else:
+        raise ValueError("Preprocess must be None 'rescale' or 'normalize'")
+    x = layers.BatchNormalization()(x)
+    x = layers.Activation("relu")(x)
+    x = layers.Conv2D(
+        8,
+        (3, 3),
+        strides=(1, 1),
+        use_bias=False,
+    )(x)
+    x = layers.BatchNormalization()(x)
+    x = layers.Activation("relu")(x)
+
+    # module 1
+    residual = layers.Conv2D(
+        16, (1, 1), strides=(2, 2), padding="same", use_bias=False
+    )(x)
+    residual = layers.BatchNormalization()(residual)
+
+    x = layers.SeparableConv2D(
+        16,
+        (3, 3),
+        padding="same",
+        use_bias=False,
+    )(x)
+    x = layers.BatchNormalization()(x)
+    x = layers.Activation("relu")(x)
+    x = layers.SeparableConv2D(
+        16,
+        (3, 3),
+        padding="same",
+        use_bias=False,
+    )(x)
+    x = layers.BatchNormalization()(x)
+
+    x = layers.MaxPooling2D((3, 3), strides=(2, 2), padding="same")(x)
+    x = layers.add([x, residual])
+
+    # module 2
+    residual = layers.Conv2D(
+        32, (1, 1), strides=(2, 2), padding="same", use_bias=False
+    )(x)
+    residual = layers.BatchNormalization()(residual)
+
+    x = layers.SeparableConv2D(
+        32,
+        (3, 3),
+        padding="same",
+        use_bias=False,
+    )(x)
+    x = layers.BatchNormalization()(x)
+    x = layers.Activation("relu")(x)
+    x = layers.SeparableConv2D(
+        32,
+        (3, 3),
+        padding="same",
+        use_bias=False,
+    )(x)
+    x = layers.BatchNormalization()(x)
+
+    x = layers.MaxPooling2D((3, 3), strides=(2, 2), padding="same")(x)
+    x = layers.add([x, residual])
+
+    # module 3
+    residual = layers.Conv2D(
+        64, (1, 1), strides=(2, 2), padding="same", use_bias=False
+    )(x)
+    residual = layers.BatchNormalization()(residual)
+
+    x = layers.SeparableConv2D(
+        64,
+        (3, 3),
+        padding="same",
+        use_bias=False,
+    )(x)
+    x = layers.BatchNormalization()(x)
+    x = layers.Activation("relu")(x)
+    x = layers.SeparableConv2D(
+        64,
+        (3, 3),
+        padding="same",
+        use_bias=False,
+    )(x)
+    x = layers.BatchNormalization()(x)
+
+    x = layers.MaxPooling2D((3, 3), strides=(2, 2), padding="same")(x)
+    x = layers.add([x, residual])
+
+    # module 4
+    residual = layers.Conv2D(
+        128, (1, 1), strides=(1, 1), padding="same", use_bias=False
+    )(x)
+    residual = layers.BatchNormalization()(residual)
+
+    x = layers.SeparableConv2D(
+        128,
+        (3, 3),
+        padding="same",
+        use_bias=False,
+    )(x)
+    x = layers.BatchNormalization()(x)
+    x = layers.Activation("relu")(x)
+    x = layers.SeparableConv2D(
+        128,
+        (3, 3),
+        padding="same",
+        use_bias=False,
+    )(x)
+    x = layers.BatchNormalization()(x)
+
+    x = layers.add([x, residual])
+
+    x = layers.Conv2D(num_classes, (3, 3), padding="same")(x)
+    x = layers.GlobalAveragePooling2D()(x)
+    output = layers.Activation(classifier_activation, name="predictions")(x)
+    return keras.Model(image_inputs, output)
+
+
 if __name__ == "__main__":
-    import os
-
-    os.environ["KERAS_BACKEND"] = "jax"
-    import jax.numpy as jp
-
-    # model = SimpleCNN((128, 128, 3), 1)
-    from paz.models.classification import MiniXception
-
-    model = MiniXception(input_shape=(128, 128, 3), num_classes=1)
-    logits = model(jp.zeros((10, 128, 128, 3)))
-    print(logits.shape)
+    model = MiniXception((128, 128, 3), 1)

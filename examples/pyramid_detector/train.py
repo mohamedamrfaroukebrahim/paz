@@ -7,13 +7,12 @@ os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = ".95"
 
 import jax
 import paz
-from paz.models.classification import MiniXception
 import keras
 
 from deepfish import load
 from pipeline import batch
 from generator import Generator
-from models import FineTuneXception, SimpleCNN
+from models import FineTuneXception, SimpleCNN, MiniXception
 import plot
 
 parser = argparse.ArgumentParser(description="Train fish classifier")
