@@ -1,3 +1,5 @@
+# check num_models, model_name
+# if they are equal load previously computed values
 import os
 from tqdm import tqdm
 import matplotlib.pyplot as plt
@@ -10,7 +12,6 @@ import deepfish
 from pipeline import batch
 from generator import Generator
 import sklearn
-import logger
 
 models = ensemble.load("experiments/*_ensemble_*/simple.keras")
 images, labels = deepfish.load("Deepfish/", "validation")
