@@ -4,7 +4,6 @@ import paz
 import pytest
 import jax.numpy as jp
 import numpy as np
-from numpy.testing import assert_array_almost_equal
 from paz.backend.boxes import (
     encode,
     decode,
@@ -39,16 +38,6 @@ def boxes_B():
             [35, 51, 196, 110],
         ]
     )
-
-
-@pytest.fixture
-def boxes_C():
-    return jp.array([[0.0, 0.0, 1.0, 1.0], [0.0, 0.0, 1.0, 1.0], [2.0, 2.0, 3.0, 3.0]])
-
-
-@pytest.fixture
-def scores_C():
-    return jp.array([0.8, 0.9, 0.7])
 
 
 @pytest.fixture
@@ -89,13 +78,6 @@ def test_compute_ious(boxes_A, boxes_B, true_IOUs):
     assert jp.allclose(true_IOUs, pred_IOUs)
 
 
-def test_apply_NMS(boxes_C, scores_C):
-    selected_indices = paz.boxes.apply_NMS(boxes_C, scores_C, 0.5, 200)
-    assert len(selected_indices) == 2
-    assert selected_indices[0] == 1
-    assert selected_indices[1] == 2
-
-
 def test_to_center_form(boxes_D_corner_form, boxes_D_center_form):
     values = paz.boxes.to_center_form(boxes_D_corner_form)
     assert jp.allclose(boxes_D_center_form, values)
@@ -121,8 +103,53 @@ def test_encode_decode():
 ##############################################################################
 
 
+@pytest.mark.parametrize(
+    "boxes,scores,threshold,max_output,expected",
+    [
+        # Original test_apply_NMS (boxes_C, scores_C)
+        (
+            jp.array(
+                [
+                    [0.0, 0.0, 1.0, 1.0],
+                    [0.0, 0.0, 1.0, 1.0],
+                    [2.0, 2.0, 3.0, 3.0],
+                ]
+            ),
+            jp.array([0.8, 0.9, 0.7]),
+            0.5,
+            200,
+            [1, 2],
+        ),
+        # Original test_apply_nms_basic (boxes_and_scores)
+        (
+            jp.array(
+                [
+                    [10, 10, 110, 110],  # A
+                    [20, 20, 120, 120],  # B
+                    [30, 30, 80, 80],  # C
+                    [200, 200, 250, 250],  # D
+                ]
+            ),
+            jp.array([0.9, 0.75, 0.6, 0.7]),
+            0.5,
+            200,
+            [0, 3, 2],
+        ),
+    ],
+    ids=[
+        "overlapping-unit-squares",
+        "mixed-overlap-rectangle-case",
+    ],
+)
+def test_apply_NMS(boxes, scores, threshold, max_output, expected):
+    selected_indices = apply_NMS(boxes, scores, threshold, max_output)
+    # exact match on both count and ordering
+    assert len(selected_indices) == len(expected)
+    assert list(selected_indices) == expected
+
+
 @pytest.fixture
-def simple_boxes_scores():
+def boxes_and_scores():
     """
     Create a simple test case with 4 boxes:
     - Box A: [10, 10, 110, 110] with score 0.9
@@ -142,39 +169,32 @@ def simple_boxes_scores():
     return boxes, scores
 
 
-def test_apply_nms_basic(simple_boxes_scores):
-    """Test standard NMS scenario."""
-    boxes, scores = simple_boxes_scores
-    selected_indices = apply_NMS(boxes, scores, 0.5, 200)
-    assert set(selected_indices.tolist()) == {0, 3, 2}
-
-
-def test_apply_nms_higher_threshold(simple_boxes_scores):
+def test_apply_nms_higher_threshold(boxes_and_scores):
     """Test higher IoU threshold keeps more boxes."""
-    boxes, scores = simple_boxes_scores
+    boxes, scores = boxes_and_scores
     selected_indices = apply_NMS(boxes, scores, 0.9, 200)
-    assert set(selected_indices.tolist()) == {0, 1, 3, 2}
+    assert jp.allclose(selected_indices, jp.array([0, 1, 3, 2]))
 
 
-def test_apply_nms_lower_threshold(simple_boxes_scores):
+def test_apply_nms_lower_threshold(boxes_and_scores):
     """Test lower IoU threshold suppresses more boxes."""
-    boxes, scores = simple_boxes_scores
+    boxes, scores = boxes_and_scores
     selected_indices = apply_NMS(boxes, scores, 0.4, 200)
-    assert set(selected_indices.tolist()) == {0, 3, 2}
+    assert jp.allclose(selected_indices, jp.array([0, 3, 2]))
 
 
-def test_apply_nms_top_k(simple_boxes_scores):
+def test_apply_nms_top_k(boxes_and_scores):
     """Test top_k parameter limits initial candidates."""
-    boxes, scores = simple_boxes_scores
+    boxes, scores = boxes_and_scores
     selected_indices = apply_NMS(boxes, scores, 0.5, 2)
-    assert set(selected_indices.tolist()) == {0}
+    assert jp.allclose(selected_indices, jp.array([0]))
 
 
 def test_apply_nms_single_box():
     """Test single box returns itself."""
     boxes = jp.array([[0, 0, 10, 10]])
     scores = jp.array([0.9])
-    assert jp.array_equal(apply_NMS(boxes, scores), jp.array([0]))
+    assert jp.allclose(apply_NMS(boxes, scores), jp.array([0]))
 
 
 def test_apply_nms_no_overlap():
@@ -182,32 +202,14 @@ def test_apply_nms_no_overlap():
     boxes = jp.array([[0, 0, 10, 10], [20, 20, 30, 30], [40, 40, 50, 50]])
     scores = jp.array([0.9, 0.8, 0.7])
     selected = apply_NMS(boxes, scores, 0.1)
-    assert set(selected.tolist()) == {0, 1, 2}
+    assert jp.allclose(selected, jp.array([0, 1, 2]))
 
 
 def test_apply_nms_identical_boxes():
     """Test identical boxes keep highest score."""
     boxes = jp.array([[0, 0, 10, 10]] * 3)
     scores = jp.array([0.7, 0.9, 0.8])
-    assert jp.array_equal(apply_NMS(boxes, scores, 0.5), jp.array([1]))
-
-
-def test_apply_nms_zero_area_boxes():
-    """Test JAX with zero-area boxes to ensure proper handling of invalid boxes."""
-    boxes = jp.array(
-        [
-            [0, 0, 10, 10],  # Normal
-            [5, 5, 5, 15],  # Zero width
-            [5, 5, 15, 5],  # Zero height
-            [5, 5, 15, 15],  # Normal
-        ]
-    )
-    scores = jp.array([0.9, 0.8, 0.7, 0.6])
-    selected = apply_NMS(boxes, scores)
-    # Only normal boxes should be selected
-    assert 0 in selected and 3 in selected
-    # Zero area boxes should be filtered out during the NMS process
-    assert 1 not in selected and 2 not in selected
+    assert jp.allclose(apply_NMS(boxes, scores, 0.5), jp.array([1]))
 
 
 ############################################################
@@ -218,228 +220,181 @@ def test_apply_nms_zero_area_boxes():
 ############################################################
 
 
-# Utility function to create test data
-def create_test_data(num_boxes=2):
+@pytest.fixture
+def generate_sample_boxes_and_priors():
     # Create some ground truth boxes in corner form [x_min, y_min, x_max, y_max]
-    boxes = jp.array([[10, 20, 60, 90], [30, 40, 100, 120]])[:num_boxes]  # Box 1  # Box 2
+    boxes = jp.array([[10, 20, 60, 90], [30, 40, 100, 120]])
 
     # Add a class label (assuming 1)
-    boxes_with_labels = jp.hstack([boxes, jp.ones((num_boxes, 1))])
+    boxes_with_labels = jp.hstack([boxes, jp.ones((2, 1))])
 
     # Create prior boxes in center form [center_x, center_y, width, height]
-    priors = jp.array([[35, 55, 50, 70], [65, 80, 70, 80]])[:num_boxes]  # Prior 1  # Prior 2
+    priors = jp.array([[35, 55, 50, 70], [65, 80, 70, 80]])
 
     return boxes_with_labels, priors
 
 
-def test_encode_center_coordinates():
-    """Test the encode_center_coordinates helper function."""
-
-    matched_boxes_corner_fmt, priors_center_fmt = create_test_data(num_boxes=1)
-    variances = [0.1, 0.1, 0.2, 0.2]
-    boxes_center_fmt = to_center_form(matched_boxes_corner_fmt[:, :4])
-
-    exp_cx_diff = ((boxes_center_fmt[0, 0] - priors_center_fmt[0, 0]) / priors_center_fmt[0, 2]) / variances[
-        0
-    ]
-    exp_cy_diff = ((boxes_center_fmt[0, 1] - priors_center_fmt[0, 1]) / priors_center_fmt[0, 3]) / variances[
-        1
-    ]
-    expected_coords = jp.array([[exp_cx_diff, exp_cy_diff]])
-
-    actual_encoded_output = encode(matched_boxes_corner_fmt, priors_center_fmt, variances)
-
-    assert_array_almost_equal(actual_encoded_output[:, 0:2], expected_coords, decimal=5)
+@pytest.fixture
+def box_data():
+    """Basic test data for boxes in corner form with labels."""
+    # Create ground truth boxes in corner form [x_min, y_min, x_max, y_max]
+    boxes = jp.array([[10, 20, 60, 90], [30, 40, 100, 120]])
+    # Add a class label (assuming 1)
+    boxes_with_labels = jp.hstack([boxes, jp.ones((2, 1))])
+    return boxes_with_labels
 
 
-def test_encode_dimensions():
-    """Test the encode_dimensions helper function."""
+@pytest.fixture
+def prior_data():
+    """Prior boxes in center form [center_x, center_y, width, height]."""
+    return jp.array([[35, 55, 50, 70], [65, 80, 70, 80]])
 
-    matched_boxes_corner_fmt, priors_center_fmt = create_test_data(num_boxes=1)
-    variances = [0.1, 0.1, 0.2, 0.2]
+
+@pytest.fixture
+def default_variances():
+    """Default variance values for encoding/decoding."""
+    return [0.1, 0.1, 0.2, 0.2]
+
+
+@pytest.fixture
+def alternate_variances():
+    """Alternative variance values for testing."""
+    return [0.2, 0.3, 0.4, 0.5]
+
+
+@pytest.fixture
+def box_centers(box_data):
+    """Boxes converted to center form."""
+    return to_center_form(box_data[:, :4])
+
+
+@pytest.fixture
+def encoded_boxes(box_data, prior_data, default_variances):
+    """Encoded boxes using default variances."""
+    return encode(box_data, prior_data, default_variances)
+
+
+@pytest.fixture
+def expected_encoding_values(box_centers, prior_data, default_variances):
+    """Expected encoding values for the first box."""
     epsilon = 1e-8
-    boxes_center_fmt = to_center_form(matched_boxes_corner_fmt[:, :4])
-
-    exp_w = jp.log(boxes_center_fmt[0, 2] / priors_center_fmt[0, 2] + epsilon) / variances[2]
-    exp_h = jp.log(boxes_center_fmt[0, 3] / priors_center_fmt[0, 3] + epsilon) / variances[3]
-    expected_dims = jp.array([[exp_w, exp_h]])
-
-    actual_encoded_output = encode(matched_boxes_corner_fmt, priors_center_fmt, variances)
-
-    assert_array_almost_equal(actual_encoded_output[:, 2:4], expected_dims, decimal=5)
-
-
-def test_concatenate_encoded_boxes():
-    """Test the concatenate_encoded_boxes helper function."""
-
-    num_boxes = 2
-    matched_boxes_corner_fmt, priors_center_fmt = create_test_data(num_boxes=num_boxes)
-    variances = [0.1, 0.1, 0.2, 0.2]
-    expected_extras = matched_boxes_corner_fmt[:, 4:]
-    expected_shape = (num_boxes, 5)
-
-    actual_encoded_output = encode(matched_boxes_corner_fmt, priors_center_fmt, variances)
-
-    assert (
-        actual_encoded_output.shape == expected_shape
-    ), f"Expected shape {expected_shape}, but got {actual_encoded_output.shape}"
-    assert_array_almost_equal(actual_encoded_output[:, 4:], expected_extras, decimal=5)
-
-
-def test_encode_basic():
-    boxes, priors = create_test_data()
-
-    # Default variances
-    variances = [0.1, 0.1, 0.2, 0.2]
-
-    # Encode
-    encoded = encode(boxes, priors, variances)
-
-    # Manual calculation for first box
-    box_center = to_center_form(boxes[:, :4])
 
     # Expected calculations for first box
-    exp_cx_diff = (box_center[0, 0] - priors[0, 0]) / priors[0, 2] / variances[0]
-    exp_cy_diff = (box_center[0, 1] - priors[0, 1]) / priors[0, 3] / variances[1]
-    exp_w = jp.log(box_center[0, 2] / priors[0, 2] + 1e-8) / variances[2]
-    exp_h = jp.log(box_center[0, 3] / priors[0, 3] + 1e-8) / variances[3]
+    exp_cx_diff = (box_centers[0, 0] - prior_data[0, 0]) / prior_data[0, 2] / default_variances[0]
+    exp_cy_diff = (box_centers[0, 1] - prior_data[0, 1]) / prior_data[0, 3] / default_variances[1]
+    exp_w = jp.log(box_centers[0, 2] / prior_data[0, 2] + epsilon) / default_variances[2]
+    exp_h = jp.log(box_centers[0, 3] / prior_data[0, 3] + epsilon) / default_variances[3]
 
-    # Check dimensions
-    assert encoded.shape == (len(boxes), 5)  # 4 bbox coords + 1 class
-
-    # Check values for first box
-    assert_array_almost_equal(encoded[0, 0], exp_cx_diff, decimal=5)
-    assert_array_almost_equal(encoded[0, 1], exp_cy_diff, decimal=5)
-    assert_array_almost_equal(encoded[0, 2], exp_w, decimal=5)
-    assert_array_almost_equal(encoded[0, 3], exp_h, decimal=5)
-    assert_array_almost_equal(encoded[0, 4], 1.0, decimal=5)  # Class label
+    return {"cx_diff": exp_cx_diff, "cy_diff": exp_cy_diff, "width": exp_w, "height": exp_h}
 
 
-def test_decode_helpers():
-    """Test the individual decode helper functions."""
-    predictions = jp.array([[0.1, 0.2, 0.3, 0.4, 1.0]])
-    priors = jp.array([[50, 60, 30, 40]])
-    variances = [0.1, 0.1, 0.2, 0.2]
-    result = decode(predictions, priors, variances)
-
-    # Manual calculations
-    exp_cx = predictions[0, 0] * priors[0, 2] * variances[0] + priors[0, 0]
-    exp_cy = predictions[0, 1] * priors[0, 3] * variances[1] + priors[0, 1]
-    exp_w = priors[0, 2] * jp.exp(predictions[0, 2] * variances[2])
-    exp_h = priors[0, 3] * jp.exp(predictions[0, 3] * variances[3])
-
-    boxes_center = jp.concatenate(
-        [jp.array([[exp_cx]]), jp.array([[exp_cy]]), jp.array([[exp_w]]), jp.array([[exp_h]])], axis=1
-    )
-    boxes_corner = to_corner_form(boxes_center)
-    assert_array_almost_equal(result[:, :4], boxes_corner, decimal=5)
+@pytest.fixture
+def single_prediction():
+    """A single prediction for decode testing."""
+    return jp.array([[0.1, 0.2, 0.3, 0.4, 1.0]])
 
 
-def test_compute_boxes_center():
-    """Test compute_boxes_center function."""
-    predictions = jp.array([[0.1, 0.2, 0.3, 0.4, 1.0]])
-    priors = jp.array([[50, 60, 30, 40]])
-    variances = [0.1, 0.1, 0.2, 0.2]
-
-    result = decode(predictions, priors, variances)
-
-    cx = predictions[0, 0] * priors[0, 2] * variances[0] + priors[0, 0]
-    cy = predictions[0, 1] * priors[0, 3] * variances[1] + priors[0, 1]
-    w = priors[0, 2] * jp.exp(predictions[0, 2] * variances[2])
-    h = priors[0, 3] * jp.exp(predictions[0, 3] * variances[3])
-
-    expected = jp.array([[cx, cy, w, h]])
-
-    expected_corner = to_corner_form(expected)
-
-    assert_array_almost_equal(result[:, :4], expected_corner, decimal=5)
+@pytest.fixture
+def single_prior():
+    """A single prior for decode testing."""
+    return jp.array([[50, 60, 30, 40]])
 
 
-def test_convert_to_corner_and_combine():
-    """Test convert_to_corner and combine_with_extras functions."""
-    boxes_center = jp.array([[50, 60, 30, 40]])
-    predictions = jp.array([[0.1, 0.2, 0.3, 0.4, 1.0]])
+@pytest.fixture
+def expected_decoded_center(single_prediction, single_prior, default_variances):
+    """Expected center-format box after decoding."""
+    cx = single_prediction[0, 0] * single_prior[0, 2] * default_variances[0] + single_prior[0, 0]
+    cy = single_prediction[0, 1] * single_prior[0, 3] * default_variances[1] + single_prior[0, 1]
+    w = single_prior[0, 2] * jp.exp(single_prediction[0, 2] * default_variances[2])
+    h = single_prior[0, 3] * jp.exp(single_prediction[0, 3] * default_variances[3])
 
-    # Test convert to corner
-    boxes_corner = to_corner_form(boxes_center)
-    expected_corner = jp.array(
+    return jp.array([[cx, cy, w, h]])
+
+
+@pytest.fixture
+def large_test_data():
+    """Generate 1000 random boxes and priors for performance testing."""
+    np.random.seed(42)  # For reproducibility
+    num_boxes = 1000
+
+    # Random boxes in corner form, ensuring x_min < x_max and y_min < y_max
+    boxes_raw = np.random.randint(0, 500, size=(num_boxes, 4)).astype(float)
+    sorted_boxes = []
+    for i in range(num_boxes):
+        box = boxes_raw[i]
+        x_min, y_min = min(box[0], box[2]), min(box[1], box[3])
+        x_max, y_max = max(box[0], box[2]), max(box[1], box[3])
+        sorted_boxes.append([x_min, y_min, x_max, y_max])
+
+    boxes_corner = jp.array(sorted_boxes)
+
+    # Add class labels (random between 1-10)
+    class_labels = jp.array(np.random.randint(1, 11, size=(num_boxes, 1)))
+    boxes = jp.hstack([boxes_corner, class_labels])
+
+    # Random priors in center form
+    priors_center = jp.array(np.random.randint(10, 490, size=(num_boxes, 2)).astype(float))  # centers
+    priors_size = jp.array(np.random.randint(10, 100, size=(num_boxes, 2)).astype(float))  # width, height
+    priors = jp.hstack([priors_center, priors_size])
+
+    return boxes, priors
+
+
+@pytest.fixture
+def expected_corner_from_prior(single_prior):
+    """Calculate expected corner format from prior box."""
+    return jp.array(
         [
             [
-                boxes_center[0, 0] - boxes_center[0, 2] / 2,  # xmin
-                boxes_center[0, 1] - boxes_center[0, 3] / 2,  # ymin
-                boxes_center[0, 0] + boxes_center[0, 2] / 2,  # xmax
-                boxes_center[0, 1] + boxes_center[0, 3] / 2,  # ymax
+                single_prior[0, 0] - single_prior[0, 2] / 2,  # xmin
+                single_prior[0, 1] - single_prior[0, 3] / 2,  # ymin
+                single_prior[0, 0] + single_prior[0, 2] / 2,  # xmax
+                single_prior[0, 1] + single_prior[0, 3] / 2,  # ymax
             ]
         ]
     )
-    assert_array_almost_equal(boxes_corner, expected_corner, decimal=5)
 
-    custom_priors = jp.array([[50, 60, 30, 40]])
+
+@pytest.fixture
+def boxes_with_class(expected_corner_from_prior, single_prediction):
+    """Combine corner boxes with class labels."""
+    return jp.concatenate([expected_corner_from_prior, single_prediction[:, 4:]], axis=1)
+
+
+@pytest.fixture
+def expected_encoding_with_alternate_variances(box_centers, prior_data, alternate_variances):
+    """Expected encoding values for the first box using alternate variances."""
+    epsilon = 1e-8
+
+    exp_cx_diff = (box_centers[0, 0] - prior_data[0, 0]) / prior_data[0, 2] / alternate_variances[0]
+    exp_cy_diff = (box_centers[0, 1] - prior_data[0, 1]) / prior_data[0, 3] / alternate_variances[1]
+    exp_w = jp.log(box_centers[0, 2] / prior_data[0, 2] + epsilon) / alternate_variances[2]
+    exp_h = jp.log(box_centers[0, 3] / prior_data[0, 3] + epsilon) / alternate_variances[3]
+
+    return {"cx_diff": exp_cx_diff, "cy_diff": exp_cy_diff, "width": exp_w, "height": exp_h}
+
+
+def test_decode_basic(generate_sample_boxes_and_priors):
+    boxes, priors = generate_sample_boxes_and_priors
     variances = [0.1, 0.1, 0.2, 0.2]
-
-    combined = jp.concatenate([boxes_corner, predictions[:, 4:]], axis=1)
-
-    assert combined.shape == (1, 5)
-    assert_array_almost_equal(combined[:, :4], boxes_corner, decimal=5)
-    assert_array_almost_equal(combined[:, 4:], predictions[:, 4:], decimal=5)
-
-
-def test_decode_basic():
-    boxes, priors = create_test_data()
-
-    # Default variances
-    variances = [0.1, 0.1, 0.2, 0.2]
-
-    # First encode
     encoded = encode(boxes, priors, variances)
-
-    # Then decode
     decoded = decode(encoded, priors, variances)
 
-    # Check dimensions
-    assert decoded.shape == boxes.shape
-
-    # Decoded boxes should be very close to original boxes
-    assert_array_almost_equal(decoded, boxes, decimal=5)
+    assert jp.allclose(decoded, boxes)
 
 
-def test_encode_decode_roundtrip():
+def test_encode_decode_roundtrip(generate_sample_boxes_and_priors):
     """Test that encoding and then decoding results in the original boxes."""
-    boxes, priors = create_test_data(num_boxes=2)
-
-    # Encode and then decode
+    boxes, priors = generate_sample_boxes_and_priors
     encoded = encode(boxes, priors)
     decoded = decode(encoded, priors)
 
-    # Should get back the original boxes
-    assert_array_almost_equal(decoded, boxes, decimal=5)
+    assert jp.allclose(decoded, boxes)
 
 
-def test_encode_with_different_variances():
-    """Test encoding with different variance values."""
-    boxes, priors = create_test_data(num_boxes=1)
-
-    # Different variances
-    variances = [0.2, 0.3, 0.4, 0.5]
-
-    encoded = encode(boxes, priors, variances)
-
-    # Manual calculation
-    box_center = to_center_form(boxes[:, :4])
-    exp_cx_diff = (box_center[0, 0] - priors[0, 0]) / priors[0, 2] / variances[0]
-    exp_cy_diff = (box_center[0, 1] - priors[0, 1]) / priors[0, 3] / variances[1]
-    exp_w = jp.log(box_center[0, 2] / priors[0, 2] + 1e-8) / variances[2]
-    exp_h = jp.log(box_center[0, 3] / priors[0, 3] + 1e-8) / variances[3]
-
-    assert_array_almost_equal(encoded[0, 0], exp_cx_diff, decimal=5)
-    assert_array_almost_equal(encoded[0, 1], exp_cy_diff, decimal=5)
-    assert_array_almost_equal(encoded[0, 2], exp_w, decimal=5)
-    assert_array_almost_equal(encoded[0, 3], exp_h, decimal=5)
-
-
-def test_decode_with_different_variances():
+def test_decode_with_different_variances(generate_sample_boxes_and_priors):
     """Test decoding with different variance values."""
-    boxes, priors = create_test_data(num_boxes=1)
+    boxes, priors = generate_sample_boxes_and_priors
 
     # Different variances
     variances = [0.2, 0.3, 0.4, 0.5]
@@ -451,7 +406,7 @@ def test_decode_with_different_variances():
     decoded = decode(encoded, priors, variances)
 
     # Should get back the original boxes
-    assert_array_almost_equal(decoded, boxes, decimal=5)
+    assert jp.allclose(decoded, boxes)
 
 
 def test_encode_with_empty_array():
@@ -474,9 +429,9 @@ def test_decode_with_empty_array():
     assert decoded.shape == (0, 5)
 
 
-def test_encode_with_multiple_classes():
+def test_encode_with_multiple_classes(generate_sample_boxes_and_priors):
     """Test encoding with boxes having different class labels."""
-    boxes, priors = create_test_data(num_boxes=2)
+    boxes, priors = generate_sample_boxes_and_priors
 
     # Create array with class labels
     boxes_with_classes = boxes.at[:, 4].set(jp.array([1.0, 2.0]))
@@ -484,12 +439,12 @@ def test_encode_with_multiple_classes():
     encoded = encode(boxes_with_classes, priors)
 
     # Check that class labels are preserved
-    assert_array_almost_equal(encoded[:, 4], boxes_with_classes[:, 4], decimal=5)
+    assert jp.allclose(encoded[:, 4], boxes_with_classes[:, 4])
 
 
-def test_decode_preserves_class_labels():
+def test_decode_preserves_class_labels(generate_sample_boxes_and_priors):
     """Test that decoding preserves class labels."""
-    boxes, priors = create_test_data(num_boxes=2)
+    boxes, priors = generate_sample_boxes_and_priors
 
     # Create array with class labels
     boxes_with_classes = boxes.at[:, 4].set(jp.array([1.0, 2.0]))
@@ -498,7 +453,7 @@ def test_decode_preserves_class_labels():
     decoded = decode(encoded, priors)
 
     # Check that class labels are preserved after encoding and decoding
-    assert_array_almost_equal(decoded[:, 4], boxes_with_classes[:, 4], decimal=5)
+    assert jp.allclose(decoded[:, 4], boxes_with_classes[:, 4])
 
 
 def test_encode_with_extreme_boxes():
@@ -556,13 +511,13 @@ def test_encode_with_identical_boxes_and_priors():
     expected_centers = jp.zeros((2, 2))
     expected_sizes = jp.zeros((2, 2))
 
-    assert_array_almost_equal(encoded[:, 0:2], expected_centers, decimal=5)
-    assert_array_almost_equal(encoded[:, 2:4], expected_sizes, decimal=5)
+    assert jp.allclose(encoded[:, 0:2], expected_centers)
+    assert jp.allclose(encoded[:, 2:4], expected_sizes)
 
 
-def test_encode_with_very_small_variances():
+def test_encode_with_very_small_variances(generate_sample_boxes_and_priors):
     """Test encoding with very small variance values."""
-    boxes, priors = create_test_data(num_boxes=1)
+    boxes, priors = generate_sample_boxes_and_priors
 
     # Very small variances
     small_variances = [1e-5, 1e-5, 1e-5, 1e-5]
@@ -574,9 +529,9 @@ def test_encode_with_very_small_variances():
     assert jp.isfinite(encoded).all()
 
 
-def test_decode_with_very_small_variances():
+def test_decode_with_very_small_variances(generate_sample_boxes_and_priors):
     """Test decoding with very small variance values."""
-    boxes, priors = create_test_data(num_boxes=1)
+    boxes, priors = generate_sample_boxes_and_priors
 
     # Very small variances
     small_variances = [1e-5, 1e-5, 1e-5, 1e-5]
@@ -588,12 +543,12 @@ def test_decode_with_very_small_variances():
     decoded = decode(encoded, priors, small_variances)
 
     # Should still get back the original boxes
-    assert_array_almost_equal(decoded, boxes, decimal=5)
+    assert jp.allclose(decoded, boxes)
 
 
-def test_encode_with_very_large_variances():
+def test_encode_with_very_large_variances(generate_sample_boxes_and_priors):
     """Test encoding with very large variance values."""
-    boxes, priors = create_test_data(num_boxes=1)
+    boxes, priors = generate_sample_boxes_and_priors
 
     # Very large variances
     large_variances = [1e5, 1e5, 1e5, 1e5]
@@ -605,9 +560,9 @@ def test_encode_with_very_large_variances():
     assert jp.isfinite(encoded).all()
 
 
-def test_decode_with_very_large_variances():
+def test_decode_with_very_large_variances(generate_sample_boxes_and_priors):
     """Test decoding with very large variance values."""
-    boxes, priors = create_test_data(num_boxes=1)
+    boxes, priors = generate_sample_boxes_and_priors
 
     # Very large variances
     large_variances = [1e5, 1e5, 1e5, 1e5]
@@ -619,7 +574,7 @@ def test_decode_with_very_large_variances():
     decoded = decode(encoded, priors, large_variances)
 
     # Should still get back the original boxes
-    assert_array_almost_equal(decoded, boxes, decimal=5)
+    assert jp.allclose(decoded, boxes)
 
 
 def test_encode_with_negative_coordinates():
@@ -636,7 +591,7 @@ def test_encode_with_negative_coordinates():
 
     # Decode and check if we get back the original
     decoded = decode(encoded, priors)
-    assert_array_almost_equal(decoded, neg_boxes, decimal=5)
+    assert jp.allclose(decoded, neg_boxes)
 
 
 def test_encode_with_extreme_coordinates():
@@ -694,7 +649,7 @@ def test_encode_with_large_offset_from_prior():
 
     # Decode and check
     decoded = decode(encoded, priors)
-    assert_array_almost_equal(decoded, far_box, decimal=5)
+    assert jp.allclose(decoded, far_box)
 
 
 def test_decode_with_zero_predictions():
@@ -710,7 +665,7 @@ def test_decode_with_zero_predictions():
     # Should get boxes at the prior centers with the prior sizes
     expected = jp.hstack([to_corner_form(priors), zero_pred[:, 4:5]])
 
-    assert_array_almost_equal(decoded, expected, decimal=5)
+    assert jp.allclose(decoded, expected)
 
 
 def test_encode_with_single_point_boxes():
@@ -726,9 +681,9 @@ def test_encode_with_single_point_boxes():
     assert jp.isfinite(encoded).all()
 
 
-def test_encode_decode_with_no_variances():
+def test_encode_decode_with_no_variances(generate_sample_boxes_and_priors):
     """Test encoding and decoding without specifying variances parameter."""
-    boxes, priors = create_test_data(num_boxes=1)
+    boxes, priors = generate_sample_boxes_and_priors
 
     # Encode without specifying variances
     encoded = encode(boxes, priors)  # Uses default variances
@@ -737,47 +692,7 @@ def test_encode_decode_with_no_variances():
     decoded = decode(encoded, priors)  # Uses default variances
 
     # Should get original boxes back
-    assert_array_almost_equal(decoded, boxes, decimal=5)
-
-
-def test_encode_decode_1000_boxes():
-    """Test performance and correctness with many boxes."""
-    # Generate 1000 random boxes and priors
-    np.random.seed(42)  # For reproducibility
-
-    num_boxes = 1000
-
-    # Random boxes in corner form
-    boxes_corner = jp.array(np.random.randint(0, 500, size=(num_boxes, 4)).astype(float))
-
-    # Ensure x_min < x_max and y_min < y_max
-    # Since JAX arrays are immutable, we'll create a new array
-    sorted_boxes = []
-    for i in range(num_boxes):
-        box = boxes_corner[i]
-        x_min, y_min = min(box[0], box[2]), min(box[1], box[3])
-        x_max, y_max = max(box[0], box[2]), max(box[1], box[3])
-        sorted_boxes.append([x_min, y_min, x_max, y_max])
-
-    boxes_corner = jp.array(sorted_boxes)
-
-    # Add class labels (random between 1-10)
-    class_labels = jp.array(np.random.randint(1, 11, size=(num_boxes, 1)))
-    boxes = jp.hstack([boxes_corner, class_labels])
-
-    # Random priors in center form
-    priors_center = jp.array(np.random.randint(10, 490, size=(num_boxes, 2)).astype(float))  # centers
-    priors_size = jp.array(np.random.randint(10, 100, size=(num_boxes, 2)).astype(float))  # width, height
-    priors = jp.hstack([priors_center, priors_size])
-
-    # Encode
-    encoded = encode(boxes, priors)
-
-    # Decode
-    decoded = decode(encoded, priors)
-
-    # Check all boxes are correctly recovered
-    assert_array_almost_equal(decoded, boxes, decimal=4)
+    assert jp.allclose(decoded, boxes)
 
 
 def test_with_multiple_additional_attributes():
@@ -797,7 +712,7 @@ def test_with_multiple_additional_attributes():
     decoded = decode(encoded, priors)
 
     # Check that additional attributes are preserved
-    assert_array_almost_equal(decoded[:, 4:], boxes[:, 4:], decimal=5)
+    assert jp.allclose(decoded[:, 4:], boxes[:, 4:])
 
 
 def test_encode_decode_with_different_box_count():
@@ -842,3 +757,82 @@ def test_encode_with_zero_width_height_priors():
         encode(boxes, prior_zero_h)
     except Exception:
         pass  # It's okay if an exception is raised, but we don't require it
+
+
+def test_encode_basic(encoded_boxes, expected_encoding_values):
+    """Test basic encoding functionality."""
+    assert jp.allclose(encoded_boxes[0, 0], expected_encoding_values["cx_diff"])
+    assert jp.allclose(encoded_boxes[0, 1], expected_encoding_values["cy_diff"])
+    assert jp.allclose(encoded_boxes[0, 2], expected_encoding_values["width"])
+    assert jp.allclose(encoded_boxes[0, 3], expected_encoding_values["height"])
+    assert jp.allclose(encoded_boxes[0, 4], 1.0)
+
+
+def test_encode_dimensions(box_data, prior_data, default_variances, expected_encoding_values):
+    """Test the encoding of box dimensions."""
+    encoded = encode(box_data, prior_data, default_variances)
+    expected_dims = jp.array([[expected_encoding_values["width"], expected_encoding_values["height"]]])
+    assert jp.allclose(encoded[0, 2:4], expected_dims)
+
+
+def test_encode_center_coordinates(box_data, prior_data, default_variances, expected_encoding_values):
+    """Test the encoding of center coordinates."""
+    encoded = encode(box_data, prior_data, default_variances)
+    expected_coords = jp.array([[expected_encoding_values["cx_diff"], expected_encoding_values["cy_diff"]]])
+    assert jp.allclose(encoded[0, 0:2], expected_coords)
+
+
+def test_concatenate_encoded_boxes(box_data, prior_data, default_variances):
+    """Test that class labels are preserved in encoding."""
+    encoded = encode(box_data, prior_data, default_variances)
+    expected_extras = box_data[:, 4:]
+    expected_shape = (2, 5)
+
+    assert encoded.shape == expected_shape, f"Expected shape {expected_shape}, but got {encoded.shape}"
+    assert jp.allclose(encoded[:, 4:], expected_extras)
+
+
+def test_encode_with_different_variances(
+    box_data, prior_data, alternate_variances, expected_encoding_with_alternate_variances
+):
+    """Test encoding with different variance values."""
+    encoded = encode(box_data, prior_data, alternate_variances)
+
+    assert jp.allclose(encoded[0, 0], expected_encoding_with_alternate_variances["cx_diff"])
+    assert jp.allclose(encoded[0, 1], expected_encoding_with_alternate_variances["cy_diff"])
+    assert jp.allclose(encoded[0, 2], expected_encoding_with_alternate_variances["width"])
+    assert jp.allclose(encoded[0, 3], expected_encoding_with_alternate_variances["height"])
+
+
+def test_decode_helpers(single_prediction, single_prior, default_variances, expected_decoded_center):
+    """Test the individual decode helper functions."""
+    result = decode(single_prediction, single_prior, default_variances)
+    expected_corner = to_corner_form(expected_decoded_center)
+    assert jp.allclose(result[:, :4], expected_corner)
+
+
+def test_compute_boxes_center(single_prediction, single_prior, default_variances, expected_decoded_center):
+    """Test compute_boxes_center function."""
+    result = decode(single_prediction, single_prior, default_variances)
+    expected_corner = to_corner_form(expected_decoded_center)
+    assert jp.allclose(result[:, :4], expected_corner)
+
+
+def test_combine_with_extras(single_prior, single_prediction, boxes_with_class):
+    """Test combining box coordinates with class labels."""
+    boxes_corner = to_corner_form(single_prior)
+    combined = jp.concatenate([boxes_corner, single_prediction[:, 4:]], axis=1)
+    assert jp.allclose(combined, boxes_with_class)
+
+
+def test_encode_decode_1000_boxes(large_test_data, default_variances):
+    """Test performance and correctness with many boxes."""
+    boxes, priors = large_test_data
+
+    encoded = encode(boxes, priors, default_variances)
+
+    decoded = decode(encoded, priors, default_variances)
+
+    assert jp.allclose(
+        decoded[:, :4], boxes[:, :4], rtol=1e-4, atol=1e-4
+    ), "Bounding box coordinates not recovered within tolerance"

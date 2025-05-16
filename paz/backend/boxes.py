@@ -7,10 +7,10 @@ import paz
 def split(boxes, keepdims=True, axis=1):
     """Split boxes into x_min, y_min, x_max, y_max components."""
     coordinates = jp.split(boxes, 4, axis=axis)
-    if keepdims:
-        return coordinates
-    else:
-        return tuple(jp.squeeze(column, axis=-1) for column in coordinates)
+    if not keepdims:
+        coordinates = tuple(jp.squeeze(column, axis=-1) for column in coordinates)
+
+    return coordinates
 
 
 def merge(coordinate_0, coordinate_1, coordinate_2, coordinate_3):
@@ -176,22 +176,11 @@ def compute_IOUs(boxes_A, boxes_B):
 
 
 def apply_NMS(boxes, scores, iou_thresh=0.45, top_k=200):
-
-    def filter_zero_area_boxes(boxes):
-        """
-        Identifies and filters out boxes with zero area.
-        """
-        if boxes.shape[0] == 0:
-            return boxes, jp.array([], dtype=jp.int32)
-
-        widths = boxes[:, 2] - boxes[:, 0]
-        heights = boxes[:, 3] - boxes[:, 1]
-        valid_area_mask = (widths > 0) & (heights > 0)
-
-        valid_indices = jp.where(valid_area_mask)[0]
-        filtered_boxes = boxes[valid_indices]
-
-        return filtered_boxes, valid_indices
+    top_k = min(top_k, len(boxes))
+    sorted_score_args = jp.argsort(scores)[::-1]
+    top_k_score_args = sorted_score_args[:top_k]
+    top_k_boxes = jp.take(boxes, top_k_score_args, axis=0)
+    top_k_args = jp.arange(len(top_k_boxes))
 
     def step(suppressed_mask, top_k_arg):
         is_suppressed = suppressed_mask[top_k_arg]
@@ -211,24 +200,10 @@ def apply_NMS(boxes, scores, iou_thresh=0.45, top_k=200):
         keep_this_box = jp.logical_not(is_suppressed)
         return new_suppressed_mask, keep_this_box
 
-    filtered_boxes, original_valid_indices = filter_zero_area_boxes(boxes)
-    if filtered_boxes.shape[0] == 0:
-        return jp.array([], dtype=jp.int32)
-    filtered_scores = scores[original_valid_indices]
-
-    top_k = min(top_k, len(filtered_boxes))
-    sorted_score_args = jp.argsort(filtered_scores)[::-1]
-    top_k_score_args = sorted_score_args[:top_k]
-    top_k_boxes = jp.take(filtered_boxes, top_k_score_args, axis=0)
-    top_k_args = jp.arange(len(top_k_boxes))
     initial_mask = jp.zeros(len(top_k_boxes), dtype=bool)
     _, keep_mask = jax.lax.scan(step, initial_mask, top_k_args)
-
-    # Map back to original indices
-    selected_indices_relative_to_filtered = top_k_score_args[keep_mask]
-    final_original_indices = original_valid_indices[selected_indices_relative_to_filtered]
-
-    return final_original_indices
+    selected_indices = top_k_score_args[keep_mask]
+    return selected_indices
 
 
 def encode(matched, priors, variances=[0.1, 0.1, 0.2, 0.2]):
@@ -245,7 +220,7 @@ def encode(matched, priors, variances=[0.1, 0.1, 0.2, 0.2]):
         array: Encoded box parameters ([dx, dy, dw, dh, extras...])
     """
 
-    def encode_center_coordinates(boxes_center, priors_local, variances_local):
+    def encode_centers(boxes_center, priors_local, variances_local):
         """Encode center coordinates using priors and variances."""
         difference_x = boxes_center[:, 0:1] - priors_local[:, 0:1]
         difference_y = boxes_center[:, 1:2] - priors_local[:, 1:2]
@@ -253,17 +228,13 @@ def encode(matched, priors, variances=[0.1, 0.1, 0.2, 0.2]):
         encoded_center_y = (difference_y / priors_local[:, 3:4]) / variances_local[1]
         return encoded_center_x, encoded_center_y
 
-    def encode_dimensions(boxes_center, priors_local, variances_local):
+    def encode_sizes(boxes_center, priors_local, variances_local):
         """Encode width and height dimensions."""
-        ratio_width = boxes_center[:, 2:3] / priors_local[:, 2:3]
-        ratio_height = boxes_center[:, 3:4] / priors_local[:, 3:4]
-        encoded_width = jp.log(ratio_width + 1e-8) / variances_local[2]
-        encoded_height = jp.log(ratio_height + 1e-8) / variances_local[3]
-        return encoded_width, encoded_height
-
-    def concatenate_encoded_boxes(encoded_x, encoded_y, encoded_w, encoded_h, extras_local):
-        """Concatenate encoded box parameters with extras."""
-        return jp.concatenate([encoded_x, encoded_y, encoded_w, encoded_h, extras_local], axis=1)
+        ratio_w = boxes_center[:, 2:3] / priors_local[:, 2:3]
+        ratio_h = boxes_center[:, 3:4] / priors_local[:, 3:4]
+        encoded_w = jp.log(ratio_w + 1e-8) / variances_local[2]
+        encoded_h = jp.log(ratio_h + 1e-8) / variances_local[3]
+        return encoded_w, encoded_h
 
     boxes_corner = matched[:, :4]
     boxes_center = to_center_form(boxes_corner)
@@ -271,10 +242,10 @@ def encode(matched, priors, variances=[0.1, 0.1, 0.2, 0.2]):
 
     priors_center = priors
 
-    encoded_x, encoded_y = encode_center_coordinates(boxes_center, priors_center, variances)
-    encoded_w, encoded_h = encode_dimensions(boxes_center, priors_center, variances)
+    encoded_x, encoded_y = encode_centers(boxes_center, priors_center, variances)
+    encoded_w, encoded_h = encode_sizes(boxes_center, priors_center, variances)
 
-    return concatenate_encoded_boxes(encoded_x, encoded_y, encoded_w, encoded_h, extras)
+    return jp.concatenate([encoded_x, encoded_y, encoded_w, encoded_h, extras], axis=1)
 
 
 def decode(predictions, priors, variances=[0.1, 0.1, 0.2, 0.2]):
@@ -317,17 +288,8 @@ def decode(predictions, priors, variances=[0.1, 0.1, 0.2, 0.2]):
 
         return jp.concatenate([center_x, center_y, W, H], axis=1)
 
-    def convert_to_corner(boxes_center_local):
-        """Convert center-form boxes to corner form."""
-        return to_corner_form(boxes_center_local)
-
-    def combine_with_extras(boxes_corner_local, predictions_local):
-        """Combine boxes with extra prediction data."""
-        return jp.concatenate([boxes_corner_local, predictions_local[:, 4:]], axis=1)
-
     priors_center = priors
-
     boxes_center = compute_boxes_center(predictions, priors_center, variances)
-    boxes_corner = convert_to_corner(boxes_center)
+    boxes_corner = to_corner_form(boxes_center)
 
-    return combine_with_extras(boxes_corner, predictions)
+    return jp.concatenate([boxes_corner, predictions[:, 4:]], axis=1)
