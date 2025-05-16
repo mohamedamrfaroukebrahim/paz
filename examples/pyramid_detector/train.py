@@ -13,10 +13,11 @@ from deepfish import load
 from pipeline import batch
 from generator import Generator
 from models import FineTuneXception, SimpleCNN, MiniXception
+from vit2 import ViT
 import plot
 
 parser = argparse.ArgumentParser(description="Train fish classifier")
-MODELS = ["simple", "minixception", "xception"]
+MODELS = ["simple", "minixception", "xception", "vit"]
 parser.add_argument("--seed", default=777, type=int)
 parser.add_argument("--root", default="experiments", type=str)
 parser.add_argument("--label", default=None)
@@ -57,8 +58,9 @@ Model = {
     "minixception": paz.partial(
         MiniXception, classifier_activation="linear", preprocess="rescale"
     ),
+    "vit": paz.lock(ViT, 8, 16, 2, [32, 16], 2, [8, 8]),
 }
-model = Model[args.model]((args.box_H, args.box_W, 3), num_classes=1)
+model = Model[args.model]((args.box_H, args.box_W, 3), 1)
 model.summary(show_trainable=True)
 keras.utils.plot_model(
     model,

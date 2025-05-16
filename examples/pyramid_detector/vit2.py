@@ -65,7 +65,7 @@ def encoder(num_heads, dimension, units, encoded_patches):
     attention = MultiHeadAttention(num_heads, dimension, dropout=0.1)(x1, x1)
     x2 = Add()([attention, encoded_patches])
     x3 = LayerNormalization(epsilon=1e-6)(x2)
-    x3 = block_MLP(x3, hidden_units=units, dropout_rate=0.1)
+    x3 = block_MLP(x3, units, 0.1)
     encoded_patches = Add()([x3, x2])
     return encoded_patches
 
@@ -97,4 +97,5 @@ def ViT(
 
 
 if __name__ == "__main__":
-    model = ViT((128, 128, 3), 1, 8)
+    model = ViT((128, 128, 3), 1, 8, 16, 2, [32, 16], 2, [8, 8])
+    model.summary()
