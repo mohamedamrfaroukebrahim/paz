@@ -39,7 +39,7 @@ if __name__ == "__main__":
     H = 480
     W = 640
     patch_size = (128, 128)
-    strides = (32, 32)
+    strides = (128, 128)
     padding = "same"
     image = paz.image.resize(image, (H, W))
 

@@ -73,83 +73,83 @@ plt.show()
 # plt.show()
 
 
-# sample_arg = 0
-# box_H, box_W = 128, 128
-# detections = labels[sample_arg]
-# image = paz.image.load(images[sample_arg])
-# size = paz.image.get_size(image)
-# num_positive_samples = 100
-# positive_boxes = paz.detection.get_boxes(detections)
-# positive_boxes = paz.boxes.denormalize(positive_boxes, *size)
+sample_arg = 0
+box_H, box_W = 128, 128
+detections = labels[sample_arg]
+image = paz.image.load(images[sample_arg])
+size = paz.image.get_size(image)
+num_positive_samples = 100
+positive_boxes = paz.detection.get_boxes(detections)
+positive_boxes = paz.boxes.denormalize(positive_boxes, *size)
 
-# image_with_boxes = paz.draw.boxes(image, positive_boxes)
-# paz.image.show(image_with_boxes)
+image_with_boxes = paz.draw.boxes(image, positive_boxes)
+paz.image.show(image_with_boxes)
 
-# negative_boxes = paz.boxes.sample_negatives(
-#     key, positive_boxes, *size, (box_H, box_W), 200, 300
-# )
+negative_boxes = paz.boxes.sample_negatives(
+    key, positive_boxes, *size, (box_H, box_W), 200, 300
+)
 
-# image_with_boxes = paz.draw.boxes(
-#     image_with_boxes, negative_boxes, color=(255, 0, 0)
-# )
-# paz.image.show(image_with_boxes)
+image_with_boxes = paz.draw.boxes(
+    image_with_boxes, negative_boxes, color=(255, 0, 0)
+)
+paz.image.show(image_with_boxes)
 
-# box_H, box_W = paz.image.get_size(image)
+box_H, box_W = paz.image.get_size(image)
 
-# positive_boxes = paz.boxes.sample_positives(
-#     key,
-#     positive_boxes,
-#     box_H,
-#     box_W,
-#     num_positive_samples,
-#     (0.8, 1.4),
-#     (-20, 20),
-# )
-# image_with_boxes = paz.draw.boxes(image, positive_boxes)
-# image_with_boxes = paz.draw.boxes(
-#     image_with_boxes, negative_boxes, color=paz.draw.RED
-# )
-# paz.image.show(image_with_boxes)
+positive_boxes = paz.boxes.sample_positives(
+    key,
+    positive_boxes,
+    box_H,
+    box_W,
+    num_positive_samples,
+    (0.8, 1.4),
+    (-20, 20),
+)
+image_with_boxes = paz.draw.boxes(image, positive_boxes)
+image_with_boxes = paz.draw.boxes(
+    image_with_boxes, negative_boxes, color=paz.draw.RED
+)
+paz.image.show(image_with_boxes)
 
-# # address edge case where all boxes are outside the image
-# positive_boxes = paz.boxes.square(positive_boxes)
-# positive_boxes = paz.boxes.filter_in_image(positive_boxes, box_H, box_W)
-# image_with_boxes = paz.draw.boxes(image, positive_boxes)
+# address edge case where all boxes are outside the image
+positive_boxes = paz.boxes.square(positive_boxes)
+positive_boxes = paz.boxes.filter_in_image(positive_boxes, box_H, box_W)
+image_with_boxes = paz.draw.boxes(image, positive_boxes)
 
-# negative_boxes = paz.boxes.square(negative_boxes)
-# negative_boxes = paz.boxes.filter_in_image(negative_boxes, box_H, box_W)
-# image_with_boxes = paz.draw.boxes(
-#     image_with_boxes, negative_boxes, color=paz.draw.RED
-# )
-# paz.image.show(image_with_boxes)
+negative_boxes = paz.boxes.square(negative_boxes)
+negative_boxes = paz.boxes.filter_in_image(negative_boxes, box_H, box_W)
+image_with_boxes = paz.draw.boxes(
+    image_with_boxes, negative_boxes, color=paz.draw.RED
+)
+paz.image.show(image_with_boxes)
 
-# mean = jp.array(paz.image.RGB_IMAGENET_MEAN, dtype="uint8")
-# positive_images = paz.boxes.crop_with_pad(positive_boxes, image, 128, 128, mean)
-# paz.image.show(paz.draw.mosaic(positive_images, border=10).astype("uint8"))
-# positive_images = jax.vmap(augment)(
-#     jax.random.split(key, len(positive_images)), positive_images
-# )
-# paz.image.show(paz.draw.mosaic(positive_images, border=10).astype(("uint8")))
-
-
-# negative_images = paz.boxes.crop_with_pad(negative_boxes, image, 128, 128, mean)
-# paz.image.show(
-#     paz.image.resize(
-#         paz.draw.mosaic(negative_images, border=10).astype("uint8"),
-#         (1080, 1080),
-#     ).astype("uint8")
-# )
+mean = jp.array(paz.image.RGB_IMAGENET_MEAN, dtype="uint8")
+positive_images = paz.boxes.crop_with_pad(positive_boxes, image, 128, 128, mean)
+paz.image.show(paz.draw.mosaic(positive_images, border=10).astype("uint8"))
+positive_images = jax.vmap(augment)(
+    jax.random.split(key, len(positive_images)), positive_images
+)
+paz.image.show(paz.draw.mosaic(positive_images, border=10).astype(("uint8")))
 
 
-# negative_images = jax.vmap(augment)(
-#     jax.random.split(key, len(negative_images)), negative_images
-# )
-# paz.image.show(
-#     paz.image.resize(
-#         paz.draw.mosaic(negative_images, border=10).astype("uint8"),
-#         (1080, 1080),
-#     ).astype("uint8")
-# )
+negative_images = paz.boxes.crop_with_pad(negative_boxes, image, 128, 128, mean)
+paz.image.show(
+    paz.image.resize(
+        paz.draw.mosaic(negative_images, border=10).astype("uint8"),
+        (1080, 1080),
+    ).astype("uint8")
+)
+
+
+negative_images = jax.vmap(augment)(
+    jax.random.split(key, len(negative_images)), negative_images
+)
+paz.image.show(
+    paz.image.resize(
+        paz.draw.mosaic(negative_images, border=10).astype("uint8"),
+        (1080, 1080),
+    ).astype("uint8")
+)
 
 
 def compute_samples(positive_ratio, batch_size):

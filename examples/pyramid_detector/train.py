@@ -12,12 +12,12 @@ import keras
 from deepfish import load
 from pipeline import batch
 from generator import Generator
-from models import FineTuneXception, SimpleCNN, MiniXception
+from models import FineTuneXception, SimpleCNN, MiniXception, ConvNeXtTiny
 from vit2 import ViT
 import plot
 
 parser = argparse.ArgumentParser(description="Train fish classifier")
-MODELS = ["simple", "minixception", "xception", "vit"]
+MODELS = ["simple", "minixception", "xception", "convnext", "vit"]
 parser.add_argument("--seed", default=777, type=int)
 parser.add_argument("--root", default="experiments", type=str)
 parser.add_argument("--label", default=None)
@@ -26,9 +26,10 @@ parser.add_argument("--box_H", default=128, type=int)
 parser.add_argument("--box_W", default=128, type=int)
 parser.add_argument("--batch_size", default=32, type=int)
 parser.add_argument("--max_epochs", default=100, type=int)
-parser.add_argument("--learning_rate", default=1e-3, type=float)
-parser.add_argument("--optimizer", default="adam", choices=["adam", "adamw"])
-parser.add_argument("--stop_patience", default=6, type=int)
+parser.add_argument("--optimizer", default="adamw", choices=["adam", "adamw"])
+parser.add_argument("--weight_decay", default=1e-4, type=float)
+parser.add_argument("--learning_rate", default=5e-4, type=float)
+parser.add_argument("--stop_patience", default=8, type=int)
 parser.add_argument("--scale_patience", default=4, type=int)
 args = parser.parse_args()
 key = jax.random.PRNGKey(args.seed)
@@ -54,6 +55,7 @@ paz.image.write(
 
 Model = {
     "xception": FineTuneXception,
+    "convnext": ConvNeXtTiny,
     "simple": SimpleCNN,
     "minixception": paz.partial(
         MiniXception, classifier_activation="linear", preprocess="rescale"
