@@ -36,6 +36,23 @@ def FineTuneXception(shape, num_classes):
     return keras.Model(inputs, outputs)
 
 
+def ConvNeXtTiny(input_shape, num_classes, dropout_rate=0.2):
+    base = keras.applications.ConvNeXtTiny(
+        include_top=False,
+        include_preprocessing=True,
+        # weights="imagenet",
+        weights=None,
+        input_shape=input_shape,
+    )
+    base.trainable = False
+    inputs = keras.Input(shape=(128, 128, 3))
+    x = base(inputs, training=False)
+    x = keras.layers.GlobalAveragePooling2D()(x)
+    x = keras.layers.Dropout(dropout_rate)(x)
+    outputs = keras.layers.Dense(num_classes)(x)
+    return keras.Model(inputs, outputs)
+
+
 def MiniXception(
     input_shape,
     num_classes,
@@ -189,5 +206,12 @@ def MiniXception(
 
 
 if __name__ == "__main__":
-    model1 = MiniXception((128, 128, 3), 1)
-    model2 = SimpleCNN((128, 128, 3), 1)
+    import os
+
+    os.environ["KERAS_BACKEND"] = "jax"
+    os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = ".95"
+
+    model = MiniXception((128, 128, 3), 1)
+    # model = SimpleCNN((128, 128, 3), 1)
+    # model = ConvNeXtTiny((128, 128, 3), 1)
+    model.summary(show_trainable=True)

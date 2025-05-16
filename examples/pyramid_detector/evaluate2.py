@@ -7,7 +7,7 @@ y_pred_ensembles = np.load(
     "results/14-05-2025_17-31-45_ensemble/y_model_pred.npy"
 )
 y_true = np.load("results/14-05-2025_17-31-45_ensemble/y_data.npy")
-use_ensemble = False
+use_ensemble = True
 
 if use_ensemble:
     y_pred_scores = np.mean(y_pred_ensembles, axis=0)
@@ -54,3 +54,28 @@ print(
 )
 plot.confusion_matrix(data)
 config = plot.build_configuration()
+
+accuracies = []
+for num_ensembles in range(len(y_pred_ensembles)):
+    y_pred_scores = np.mean(y_pred_ensembles[0 : (num_ensembles + 1)], axis=0)
+    precisions, recalls, thresholds = sklearn.metrics.precision_recall_curve(
+        y_true, y_pred_scores
+    )
+    f1_score = 2 * (precisions * recalls) / (precisions + recalls)
+    threshold = thresholds[np.argmax(f1_score)]
+    y_pred = y_pred_scores > threshold
+    data = sklearn.metrics.confusion_matrix(y_true, y_pred)
+    tn, fp, fn, tp = data.flatten()
+    accuracy = (tp + tn) / (tp + fp + tn + fn)
+    accuracies.append(accuracy)
+accuracies = np.array(accuracies)
+
+import plot
+import matplotlib.pyplot as plt
+
+config = plot.build_configuration(figsize=(640, 480))
+figure, axis = plt.subplots(figsize=config.figsize)
+axis.plot(accuracies, "-o", linewidth=2, color=config.color_1)
+plot.hide_axes(axis)
+plot.set_minor_ticks(axis)
+plot.write_or_show(figure)
