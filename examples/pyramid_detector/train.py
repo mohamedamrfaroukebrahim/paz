@@ -8,6 +8,7 @@ os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = ".95"
 import jax
 import paz
 import keras
+from keras.optimizers import Adam, AdamW
 
 from deepfish import load
 from pipeline import batch
@@ -27,7 +28,7 @@ parser.add_argument("--box_W", default=128, type=int)
 parser.add_argument("--batch_size", default=32, type=int)
 parser.add_argument("--max_epochs", default=100, type=int)
 parser.add_argument("--optimizer", default="adamw", choices=["adam", "adamw"])
-parser.add_argument("--weight_decay", default=1e-4, type=float)
+parser.add_argument("--weight_decay", default=1e-3, type=float)
 parser.add_argument("--learning_rate", default=5e-4, type=float)
 parser.add_argument("--stop_patience", default=8, type=int)
 parser.add_argument("--scale_patience", default=4, type=int)
@@ -71,8 +72,12 @@ keras.utils.plot_model(
     show_trainable=True,
 )
 
-Optimizer = {"adam": keras.optimizers.Adam, "adamw": keras.optimizers.AdamW}
-optimizer = Optimizer[args.optimizer](learning_rate=args.learning_rate)
+if args.optimizer == "adam":
+    optimizer = Adam(args.learning_rate, weight_decay=args.weight_decay)
+elif args.optimizer == "adamw":
+    optimizer = AdamW(args.learning_rate, weight_decay=args.weight_decay)
+else:
+    raise ValueError(f"Optimizer {args.optimizer} not supported")
 
 model.compile(
     optimizer=optimizer,
