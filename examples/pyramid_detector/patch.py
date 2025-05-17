@@ -1,3 +1,4 @@
+import paz
 import jax
 import jax.numpy as jp
 
@@ -30,7 +31,6 @@ def boxes_patch(H, W, patch_size, strides, padding="valid"):
 
 
 if __name__ == "__main__":
-    import paz
 
     from deepfish import load
 
