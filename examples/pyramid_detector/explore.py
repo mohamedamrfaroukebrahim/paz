@@ -102,8 +102,8 @@ positive_boxes = paz.boxes.sample_positives(
     box_H,
     box_W,
     num_positive_samples,
-    (0.8, 1.4),
-    (-20, 20),
+    (0.9, 1.4),
+    (0, 0),
 )
 image_with_boxes = paz.draw.boxes(image, positive_boxes)
 image_with_boxes = paz.draw.boxes(
@@ -173,11 +173,11 @@ def batch(
     key,
     detections,
     image,
-    box_size=(128, 128),
+    box_size=(256, 256),
     positive_ratio=0.5,
     batch_size=32,
-    scale_range=(0.8, 1.4),
-    shift_range=(-20, 20),
+    scale_range=(0.9, 1.4),
+    shift_range=(0, 0),
     pad=jp.array(paz.image.RGB_IMAGENET_MEAN, dtype="uint8"),
 ):
     keys = jax.random.split(key, 5)
