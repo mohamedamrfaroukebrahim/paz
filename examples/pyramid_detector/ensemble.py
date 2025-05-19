@@ -9,8 +9,11 @@ import jax.numpy as jp
 import keras
 
 
-def load(wildcard):
-    return [keras.saving.load_model(filepath) for filepath in glob(wildcard)]
+def load(wildcard, num_models=None):
+    filepaths = sorted(glob(wildcard))
+    if num_models is not None:
+        filepaths = filepaths[:num_models]
+    return [keras.saving.load_model(filepath) for filepath in filepaths]
 
 
 def predict(models, image, activation=jax.nn.sigmoid):
