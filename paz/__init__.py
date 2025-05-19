@@ -13,6 +13,7 @@ from paz.backend import logger
 from paz.backend.camera import Camera, VideoPlayer
 from paz.backend.lie import SE3
 from paz.backend.lie import SO3
+from paz.backend.lie import SE2
 from paz.backend.lie import quaternion
 from paz.backend import points2D
 from paz.backend.standard import (
