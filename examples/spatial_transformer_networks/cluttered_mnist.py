@@ -43,10 +43,7 @@ def load(dataset_path=None, num_classes=10):
 if __name__ == "__main__":
     import paz
 
-    path = download()
-    data = np.load(path)
-    y = data["y_train"]
-    (x_train, y_train), (x_valid, y_valid), (x_test, y_test) = load(path)
+    (x_train, y_train), (x_valid, y_valid), (x_test, y_test) = load()
     paz.image.show(
         paz.image.denormalize(paz.draw.mosaic(x_train, border=5, background=1))
     )

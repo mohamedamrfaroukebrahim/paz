@@ -1,6 +1,3 @@
-import os
-
-os.environ["KERAS_BACKEND"] = "jax"
 import keras
 from keras.layers import Input, Activation, MaxPool2D, Flatten, Layer
 from keras.layers import Conv2D, Dense
