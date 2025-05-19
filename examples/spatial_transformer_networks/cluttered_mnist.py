@@ -26,7 +26,6 @@ def to_categorical(y, num_classes=None):
 
 def process(x, y, shape=(40, 40)):
     x = x.reshape((x.shape[0], *shape, 1))
-    # y = np.squeeze(y, axis=-1)
     return x, y
 
 

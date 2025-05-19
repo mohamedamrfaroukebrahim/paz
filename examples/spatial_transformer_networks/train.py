@@ -6,7 +6,7 @@ import keras
 from keras import Model
 
 import cluttered_mnist
-from stn import STN
+
 import paz
 
 
@@ -20,7 +20,7 @@ x_valid, y_valid = train_data
 y_train = keras.utils.to_categorical(y_train, num_classes)
 y_valid = keras.utils.to_categorical(y_valid, num_classes)
 
-model = STN((40, 40, 1), (28, 28), num_classes)
+model = paz.models.STN((40, 40, 1), (28, 28), num_classes)
 model.compile("adam", "categorical_crossentropy", metrics=["accuracy"])
 model.summary()
 
@@ -33,7 +33,8 @@ attent = Model(model.input, model.get_layer("bilinear_interpolation").output)
 to_se2 = Model(model.input, model.get_layer("to_se2").output)
 
 images = attent(x_valid[:32])
-matrix = to_se2.predict(x_valid[:32])
+matrix = to_se2(x_valid[:32])
+print(matrix)
 true_mosaic = paz.draw.mosaic(x_valid[:32], background=1)
 paz.image.show(paz.image.denormalize(true_mosaic))
 
