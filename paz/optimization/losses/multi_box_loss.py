@@ -1,5 +1,4 @@
-import tensorflow as tf
-import tensorflow.keras.backend as K
+from keras import ops
 
 
 class MultiBoxLoss(object):
@@ -8,28 +7,30 @@ class MultiBoxLoss(object):
     # Arguments
         neg_pos_ratio: Int. Number of negatives used per positive box.
         alpha: Float. Weight parameter for localization loss.
-        max_num_negatives: Int. Maximum number of negatives per batch.
+        max_negatives: Int. Maximum number of negatives per batch.
 
     # References
         - [SSD: Single Shot MultiBox
             Detector](https://arxiv.org/abs/1512.02325)
     """
-    def __init__(self, neg_pos_ratio=3, alpha=1.0, max_num_negatives=300):
+
+    def __init__(self, neg_pos_ratio=3, alpha=1.0, max_negatives=300):
         self.alpha = alpha
         self.neg_pos_ratio = neg_pos_ratio
-        self.max_num_negatives = max_num_negatives
+        self.max_negatives = max_negatives
 
     def _smooth_l1(self, y_true, y_pred):
-        absolute_value_loss = K.abs(y_true - y_pred)
-        square_loss = 0.5 * (y_true - y_pred)**2
-        absolute_value_condition = K.less(absolute_value_loss, 1.0)
-        l1_smooth_loss = tf.where(
-            absolute_value_condition, square_loss, absolute_value_loss - 0.5)
-        return K.sum(l1_smooth_loss, axis=-1)
+        absolute_value_loss = ops.abs(y_true - y_pred)
+        square_loss = 0.5 * (y_true - y_pred) ** 2
+        absolute_value_condition = ops.less(absolute_value_loss, 1.0)
+        l1_smooth_loss = ops.where(
+            absolute_value_condition, square_loss, absolute_value_loss - 0.5
+        )
+        return ops.sum(l1_smooth_loss, axis=-1)
 
     def _cross_entropy(self, y_true, y_pred):
-        y_pred = K.maximum(K.minimum(y_pred, 1 - 1e-15), 1e-15)
-        cross_entropy_loss = - K.sum(y_true * K.log(y_pred), axis=-1)
+        y_pred = ops.maximum(ops.minimum(y_pred, 1 - 1e-15), 1e-15)
+        cross_entropy_loss = -ops.sum(y_true * ops.log(y_pred), axis=-1)
         return cross_entropy_loss
 
     def _calculate_masks(self, y_true):
@@ -66,13 +67,13 @@ class MultiBoxLoss(object):
         # Returns
             Tensor with localization loss per sample in batch.
         """
-        batch_size = tf.cast(tf.shape(y_pred)[0], tf.float32)
+        batch_size = ops.cast(ops.shape(y_pred)[0], "float32")
         local_loss = self._smooth_l1(y_true[:, :, :4], y_pred[:, :, :4])
         positive_mask, negative_mask = self._calculate_masks(y_true)
         positive_local_losses = local_loss * positive_mask
-        positive_local_loss = tf.reduce_sum(positive_local_losses, axis=-1)
-        num_positives = tf.reduce_sum(tf.cast(positive_mask, 'float32'))
-        num_positives = tf.maximum(1.0, num_positives)
+        positive_local_loss = ops.sum(positive_local_losses, axis=-1)
+        num_positives = ops.sum(ops.cast(positive_mask, "float32"))
+        num_positives = ops.maximum(1.0, num_positives)
         return (self.alpha * positive_local_loss * batch_size) / num_positives
 
     def positive_classification(self, y_true, y_pred):
@@ -88,16 +89,16 @@ class MultiBoxLoss(object):
         # Returns
             Tensor with positive classification loss per sample in batch.
         """
-        batch_size = tf.cast(tf.shape(y_pred)[0], tf.float32)
+        batch_size = ops.cast(ops.shape(y_pred)[0], "float32")
         class_loss = self._cross_entropy(y_true[:, :, 4:], y_pred[:, :, 4:])
         positive_mask, negative_mask = self._calculate_masks(y_true)
         positive_class_losses = class_loss * positive_mask
-        positive_class_loss = K.sum(positive_class_losses, axis=-1)
-        num_positives = K.sum(K.cast(positive_mask, 'float32'))
-        num_positives = tf.maximum(1.0, num_positives)
+        positive_class_loss = ops.sum(positive_class_losses, axis=-1)
+        num_positives = ops.sum(ops.cast(positive_mask, "float32"))
+        num_positives = ops.maximum(1.0, num_positives)
         return (positive_class_loss * batch_size) / num_positives
 
-    def negative_classification(self, y_true, y_pred):
+    def negative_classification_old(self, y_true, y_pred):
         """Computes negative classification loss in a batch. Negative boxes are those
             boxes that don't contain an object.
 
@@ -110,18 +111,46 @@ class MultiBoxLoss(object):
         # Returns
             Tensor with negative classification loss per sample in batch.
         """
-        batch_size = tf.cast(tf.shape(y_pred)[0], tf.float32)
+        batch_size = ops.cast(ops.shape(y_pred)[0], "float32")
         class_loss = self._cross_entropy(y_true[:, :, 4:], y_pred[:, :, 4:])
         positive_mask, negative_mask = self._calculate_masks(y_true)
-        num_positives_per_sample = K.cast(K.sum(positive_mask, -1), 'int32')
+        num_positives_per_sample = ops.cast(ops.sum(positive_mask, -1), "int32")
         num_hard_negatives = self.neg_pos_ratio * num_positives_per_sample
-        num_negatives_per_sample = K.minimum(
-            num_hard_negatives, self.max_num_negatives)
+        num_negatives_per_sample = ops.minimum(
+            num_hard_negatives, self.max_negatives
+        )
         negative_class_losses = class_loss * negative_mask
         elements = (negative_class_losses, num_negatives_per_sample)
-        negative_class_loss = tf.map_fn(
-            lambda x: K.sum(tf.nn.top_k(x[0], x[1])[0]),
-            elements, dtype=tf.float32)
-        num_positives = K.sum(K.cast(positive_mask, 'float32'))
-        num_positives = tf.maximum(1.0, num_positives)
+        negative_class_loss = ops.vectorized_map(
+            lambda x: ops.sum(ops.top_k(x[0], x[1])[0]),
+            elements,
+        )
+        num_positives = ops.sum(ops.cast(positive_mask, "float32"))
+        num_positives = ops.maximum(1.0, num_positives)
         return (negative_class_loss * batch_size) / num_positives
+
+    def negative_classification(self, y_true, y_pred):
+        batch_size = ops.cast(ops.shape(y_pred)[0], "float32")
+        class_loss = self._cross_entropy(y_true[:, :, 4:], y_pred[:, :, 4:])
+        positive_mask, negative_mask = self._calculate_masks(y_true)
+
+        num_positives_per_sample = ops.cast(ops.sum(positive_mask, -1), "int32")
+        num_hard_negatives = self.neg_pos_ratio * num_positives_per_sample
+        num_hard_negatives = ops.minimum(num_hard_negatives, self.max_negatives)
+
+        negative_class_losses = class_loss * negative_mask
+        num_boxes = ops.shape(negative_class_losses)[1]
+        sorted_losses_desc = -ops.sort(-negative_class_losses, axis=-1)
+        indices = ops.arange(num_boxes, dtype="int32")
+        indices = ops.expand_dims(indices, axis=0)
+        k_values_expanded = ops.expand_dims(num_hard_negatives, axis=-1)
+        selection_mask = ops.less(indices, k_values_expanded)
+        masked_top_losses = ops.where(
+            selection_mask,
+            sorted_losses_desc,
+            ops.zeros_like(sorted_losses_desc),
+        )
+        negative_class_loss = ops.sum(masked_top_losses, axis=-1)
+        total_num_positives = ops.sum(ops.cast(positive_mask, "float32"))
+        total_num_positives = ops.maximum(1.0, total_num_positives)
+        return (negative_class_loss * batch_size) / total_num_positives
