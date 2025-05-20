@@ -78,3 +78,9 @@ def get_boxes(detections):
 
 def join(boxes, class_args):
     return jp.concatenate([boxes, class_args], axis=0)
+
+
+def to_one_hot(detections, num_classes):
+    boxes, classes = split(detections)
+    classes = paz.classes.to_one_hot(classes, num_classes)
+    return join(boxes, classes)
