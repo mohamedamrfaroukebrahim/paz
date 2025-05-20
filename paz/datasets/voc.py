@@ -90,8 +90,13 @@ def get_URL(name, split):
 
 def download(name, split):
     origin = get_URL(name, split)
-    filepath = get_file(origin=origin, extract=True)
-    filepath = os.path.join(os.path.dirname(filepath), "VOCdevkit")
+    filepath = get_file(
+        fname="-".join([name, split]),
+        origin=origin,
+        extract=True,
+        cache_subdir="paz/datasets",
+    )
+    filepath = os.path.join(filepath, "VOCdevkit")
     return filepath
 
 
@@ -128,7 +133,11 @@ def load(name, split="trainval", task="detection"):
             class_args.append(image_class_args)
         else:
             print(f"Image {image_name} had not boxes.")
-    return image_paths, class_args, boxes, masks_paths
+    if task == "segmentation":
+        dataset = (image_paths, class_args, boxes, masks_paths)
+    else:
+        dataset = (image_paths, class_args, boxes)
+    return dataset
 
 
 def colormap_to_class():
