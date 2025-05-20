@@ -414,3 +414,16 @@ def patch(image, patch_size, strides, padding="valid"):
     if padding == "same":
         image = paz.image.pad_same(image, patch_size, strides)
     return vectorized_patch(image, y_min_args, x_min_args, patch_size)
+
+
+def augment_color(key, image):
+    keys = jax.random.split(key, 4)
+    image = paz.image.random_saturation(keys[0], image)
+    image = paz.image.random_brightness(keys[1], image)
+    image = paz.image.random_contrast(keys[2], image)
+    image = paz.image.random_hue(keys[3], image)
+    return image
+
+
+def subtract_mean(image, mean):
+    return image - mean
