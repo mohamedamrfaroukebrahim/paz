@@ -1,3 +1,4 @@
+import jax
 import jax.numpy as jp
 
 
@@ -31,3 +32,8 @@ def pad_data(class_args, size, value=-1):
         padded_element = pad(jp.array(sample), size, value)
         padded_elements.append(padded_element)
     return jp.array(padded_elements)
+
+
+def to_one_hot(class_args, num_classes):
+    """Transform from class index to one-hot encoded vector."""
+    return jax.nn.one_hot(class_args, num_classes)
