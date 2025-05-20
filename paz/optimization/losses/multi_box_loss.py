@@ -77,8 +77,7 @@ class MultiBoxLoss(object):
         return (self.alpha * positive_local_loss * batch_size) / num_positives
 
     def positive_classification(self, y_true, y_pred):
-        """Computes positive classification loss in a batch. Positive boxes are those
-            boxes that contain an object.
+        """Computes classification loss of boxes that contain an object.
 
         # Arguments
             y_true: Tensor of shape '[batch_size, num_boxes, 4 + num_classes]'
@@ -98,9 +97,8 @@ class MultiBoxLoss(object):
         num_positives = ops.maximum(1.0, num_positives)
         return (positive_class_loss * batch_size) / num_positives
 
-    def negative_classification_old(self, y_true, y_pred):
-        """Computes negative classification loss in a batch. Negative boxes are those
-            boxes that don't contain an object.
+    def negative_classification(self, y_true, y_pred):
+        """Computes classification loss of boxes that don't contain an object.
 
         # Arguments
             y_true: Tensor of shape '[batch_size, num_boxes, 4 + num_classes]'
@@ -111,46 +109,28 @@ class MultiBoxLoss(object):
         # Returns
             Tensor with negative classification loss per sample in batch.
         """
-        batch_size = ops.cast(ops.shape(y_pred)[0], "float32")
-        class_loss = self._cross_entropy(y_true[:, :, 4:], y_pred[:, :, 4:])
-        positive_mask, negative_mask = self._calculate_masks(y_true)
-        num_positives_per_sample = ops.cast(ops.sum(positive_mask, -1), "int32")
-        num_hard_negatives = self.neg_pos_ratio * num_positives_per_sample
-        num_negatives_per_sample = ops.minimum(
-            num_hard_negatives, self.max_negatives
-        )
-        negative_class_losses = class_loss * negative_mask
-        elements = (negative_class_losses, num_negatives_per_sample)
-        negative_class_loss = ops.vectorized_map(
-            lambda x: ops.sum(ops.top_k(x[0], x[1])[0]),
-            elements,
-        )
-        num_positives = ops.sum(ops.cast(positive_mask, "float32"))
-        num_positives = ops.maximum(1.0, num_positives)
-        return (negative_class_loss * batch_size) / num_positives
 
-    def negative_classification(self, y_true, y_pred):
-        batch_size = ops.cast(ops.shape(y_pred)[0], "float32")
         class_loss = self._cross_entropy(y_true[:, :, 4:], y_pred[:, :, 4:])
         positive_mask, negative_mask = self._calculate_masks(y_true)
+        negative_class_losses = class_loss * negative_mask
+        descending_sorted_losses = -ops.sort(-negative_class_losses, axis=-1)
 
         num_positives_per_sample = ops.cast(ops.sum(positive_mask, -1), "int32")
         num_hard_negatives = self.neg_pos_ratio * num_positives_per_sample
         num_hard_negatives = ops.minimum(num_hard_negatives, self.max_negatives)
+        num_hard_negatives = ops.expand_dims(num_hard_negatives, axis=-1)
 
-        negative_class_losses = class_loss * negative_mask
         num_boxes = ops.shape(negative_class_losses)[1]
-        sorted_losses_desc = -ops.sort(-negative_class_losses, axis=-1)
-        indices = ops.arange(num_boxes, dtype="int32")
-        indices = ops.expand_dims(indices, axis=0)
-        k_values_expanded = ops.expand_dims(num_hard_negatives, axis=-1)
-        selection_mask = ops.less(indices, k_values_expanded)
+        indices = ops.expand_dims(ops.arange(num_boxes, dtype="int32"), axis=0)
+        selection_mask = ops.less(indices, num_hard_negatives)
         masked_top_losses = ops.where(
             selection_mask,
-            sorted_losses_desc,
-            ops.zeros_like(sorted_losses_desc),
+            descending_sorted_losses,
+            ops.zeros_like(descending_sorted_losses),
         )
         negative_class_loss = ops.sum(masked_top_losses, axis=-1)
+
         total_num_positives = ops.sum(ops.cast(positive_mask, "float32"))
         total_num_positives = ops.maximum(1.0, total_num_positives)
+        batch_size = ops.cast(ops.shape(y_pred)[0], "float32")
         return (negative_class_loss * batch_size) / total_num_positives
