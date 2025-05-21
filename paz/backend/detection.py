@@ -72,5 +72,44 @@ def split(detections):
     return boxes, class_args
 
 
+def get_boxes(detections):
+    return detections[:, :4]
+
+
 def join(boxes, class_args):
     return jp.concatenate([boxes, class_args], axis=0)
+
+
+def to_one_hot(detections, num_classes):
+    boxes, classes = split(detections)
+    classes = paz.classes.to_one_hot(classes, num_classes)
+    return join(boxes, classes)
+
+
+def encode(detections, priors, variances=[0.1, 0.1, 0.2, 0.2]):
+    boxes = detections[:, :4]
+    boxes = paz.boxes.to_center_form(boxes)
+    center_difference_x = boxes[:, 0:1] - priors[:, 0:1]
+    encoded_center_x = center_difference_x / priors[:, 2:3]
+    center_difference_y = boxes[:, 1:2] - priors[:, 1:2]
+    encoded_center_y = center_difference_y / priors[:, 3:4]
+    encoded_center_x = encoded_center_x / variances[0]
+    encoded_center_y = encoded_center_y / variances[1]
+    encoded_W = jp.log((boxes[:, 2:3] / priors[:, 2:3]) + 1e-8)
+    encoded_H = jp.log((boxes[:, 3:4] / priors[:, 3:4]) + 1e-8)
+    encoded_W = encoded_W / variances[2]
+    encoded_H = encoded_H / variances[3]
+    encoded_boxes = [encoded_center_x, encoded_center_y, encoded_W, encoded_H]
+    return jp.concatenate(encoded_boxes + [detections[:, 4:]], axis=1)
+
+
+def decode(predictions, priors, variances=[0.1, 0.1, 0.2, 0.2]):
+    center_x = predictions[:, 0:1] * priors[:, 2:3] * variances[0]
+    center_x = center_x + priors[:, 0:1]
+    center_y = predictions[:, 1:2] * priors[:, 3:4] * variances[1]
+    center_y = center_y + priors[:, 1:2]
+    W = priors[:, 2:3] * jp.exp(predictions[:, 2:3] * variances[2])
+    H = priors[:, 3:4] * jp.exp(predictions[:, 3:4] * variances[3])
+    boxes = jp.concatenate([center_x, center_y, W, H], axis=1)
+    boxes = paz.boxes.to_corner_form(boxes)
+    return jp.concatenate([boxes, predictions[:, 4:]], 1)

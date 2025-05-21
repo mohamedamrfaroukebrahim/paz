@@ -169,6 +169,7 @@ def rotation_z(angle):
     # Return
         Array (3, 3) rotation matrix in Z axis.
     """
+    # TODO verify that signs are correct
     cos_angle = jp.cos(angle)
     sin_angle = jp.sin(angle)
     rotation_matrix_z = jp.array(

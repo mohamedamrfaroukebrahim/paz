@@ -115,7 +115,9 @@ def mosaic(images, shape=None, border=0, background=255):
     num_images, H, W, num_channels = images.shape
     total_rows = (num_rows * H) + ((num_rows - 1) * border)
     total_cols = (num_cols * W) + ((num_cols - 1) * border)
-    mosaic = np.full((total_rows, total_cols, num_channels), background)
+    mosaic = np.full(
+        (total_rows, total_cols, num_channels), background, dtype=images.dtype
+    )
 
     padded_H = H + border
     padded_W = W + border

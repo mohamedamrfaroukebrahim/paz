@@ -1,79 +1,118 @@
+# TODO make plot of augmentations of a single image
+import os
+import argparse
+
+os.environ["KERAS_BACKEND"] = "jax"
+os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = ".95"
+
 import jax
-import jax.numpy as jp
 import paz
+import keras
+from keras.optimizers import Adam, AdamW
+
 from deepfish import load
+from pipeline import batch
+from generator import Generator
+from models import FineTuneXception, SimpleCNN, MiniXception, ConvNeXtTiny
+from vit2 import ViT
+import plot
+
+parser = argparse.ArgumentParser(description="Train fish classifier")
+MODELS = ["simple", "minixception", "xception", "convnext", "vit"]
+parser.add_argument("--seed", default=777, type=int)
+parser.add_argument("--root", default="experiments", type=str)
+parser.add_argument("--label", default=None)
+parser.add_argument("--model", default="simple", type=str, choices=MODELS)
+parser.add_argument("--box_H", default=128, type=int)
+parser.add_argument("--box_W", default=128, type=int)
+parser.add_argument("--batch_size", default=32, type=int)
+parser.add_argument("--max_epochs", default=100, type=int)
+parser.add_argument("--optimizer", default="adamw", choices=["adam", "adamw"])
+parser.add_argument("--weight_decay", default=1e-3, type=float)
+parser.add_argument("--learning_rate", default=5e-4, type=float)
+parser.add_argument("--stop_patience", default=8, type=int)
+parser.add_argument("--scale_patience", default=4, type=int)
+args = parser.parse_args()
+key = jax.random.PRNGKey(args.seed)
+keras.utils.set_random_seed(args.seed)
+
+labels = [args.model] if args.label is None else [args.model, args.label]
+root = paz.logger.make_timestamped_directory(args.root, "_".join(labels))
+paz.logger.write_dictionary(args.__dict__, root, "hyper-parameters.json")
 
 train_images, train_labels = load("Deepfish/", "train")
 valid_images, valid_labels = load("Deepfish/", "validation")
-# print("Total num images", len(train_images) + len(valid_images))
-# for path, detections in zip(train_images, train_labels):
-#     image = paz.image.load(path)
-#     image_boxes, class_args = paz.detection.split(detections)
-#     H, W = paz.image.get_dimensions(image)
-#     image_boxes = (image_boxes * jp.array([[W, H, W, H]])).astype(int)
-#     image_boxes = paz.boxes.square(image_boxes)
-#     image = paz.draw.boxes(image, image_boxes)
-#     paz.image.show(image)
+batch_train = jax.jit(batch)
+batch_valid = jax.jit(paz.partial(batch, augment=False))
+train_generator = Generator(key, train_images, train_labels, batch_train)
+valid_generator = Generator(key, valid_images, valid_labels, batch_valid)
+
+batch_images = train_generator.__getitem__(0)[0]
+paz.image.write(
+    os.path.join(root, "train_batch.png"),
+    paz.draw.mosaic(batch_images.astype("uint8"), border=5).astype("uint8"),
+)
 
 
-image = paz.image.load(train_images[0])
-image_boxes, class_args = paz.detection.split(train_labels[0])
-H, W = paz.image.get_dimensions(image)
-image_boxes = (image_boxes * jp.array([[W, H, W, H]])).astype(int)
-image_boxes = paz.boxes.square(image_boxes)
-image_with_boxes = paz.draw.boxes(image, image_boxes)
-paz.image.show(image_with_boxes)
+Model = {
+    "xception": FineTuneXception,
+    "convnext": ConvNeXtTiny,
+    "simple": SimpleCNN,
+    "minixception": paz.partial(
+        MiniXception, classifier_activation="linear", preprocess="rescale"
+    ),
+    "vit": paz.lock(ViT, 8, 16, 2, [32, 16], 2, [8, 8]),
+}
+model = Model[args.model]((args.box_H, args.box_W, 3), 1)
+model.summary(show_trainable=True)
+keras.utils.plot_model(
+    model,
+    os.path.join(root, args.model + ".png"),
+    show_shapes=True,
+    show_trainable=True,
+)
 
-num_trials = 15
-num_boxes = 5
-H_box, W_box = 128, 128
-key = jax.random.key(777)
-keys = jax.random.split(key)
-# get shape / get_size
-H, W = paz.image.get_dimensions(image)
+if args.optimizer == "adam":
+    optimizer = Adam(args.learning_rate, weight_decay=args.weight_decay)
+elif args.optimizer == "adamw":
+    optimizer = AdamW(args.learning_rate, weight_decay=args.weight_decay)
+else:
+    raise ValueError(f"Optimizer {args.optimizer} not supported")
 
-x_min = jax.random.randint(keys[0], (num_trials, 1), 0, W)
-y_min = jax.random.randint(keys[1], (num_trials, 1), 0, H)
-x_max = x_min + W_box
-y_max = y_min + H_box
-random_boxes = paz.boxes.merge(x_min, y_min, x_max, y_max)
-ious = paz.boxes.compute_IOUs(random_boxes, image_boxes)
-mean_ious = jp.mean(ious, axis=1)
-best_args = jp.argsort(mean_ious)[::-1]
-best_args = best_args[:num_boxes]
-best_boxes = random_boxes[best_args]
-image_with_boxes = paz.draw.boxes(image_with_boxes, best_boxes, paz.draw.RED)
-paz.image.show(image_with_boxes)
+model.compile(
+    optimizer=optimizer,
+    loss=keras.losses.BinaryCrossentropy(from_logits=True),
+    metrics=[keras.metrics.BinaryAccuracy()],
+    jit_compile=True,
+)
 
-# random_box = jp.array([[x_min, y_min, x_max, y_max]])
-# image = paz.draw.boxes(image, random_box)
-# paz.image.show(image)
-# keys = jax.random.split(jax.random.key(777), 3)
-# image = paz.image.random_saturation(keys[0], image)
-# paz.image.show(image)
-# image = paz.image.random_brightness(keys[1], image)
-# paz.image.show(image)
-# image = paz.image.random_contrast(keys[2], image)
-# paz.image.show(image)
+callbacks = [
+    keras.callbacks.EarlyStopping(patience=args.stop_patience),
+    keras.callbacks.ReduceLROnPlateau(patience=args.scale_patience),
+    keras.callbacks.CSVLogger(os.path.join(root, "log.csv")),
+    keras.callbacks.ModelCheckpoint(
+        os.path.join(root, f"{args.model}.keras"), save_best_only=True
+    ),
+]
 
-# for key in jax.random.split(key, 10):
-#     paz.image.show(paz.image.random_saturation(key, image.copy(), 0.5, 2.0))
-
-# for key in jax.random.split(key, 10):
-#     paz.image.show(paz.image.random_brightness(key, image.copy(), 100))
-
-# for key in jax.random.split(key, 100):
-#     paz.image.show(paz.image.random_contrast(key, image.copy()))
-
-
-def solarize(image, threshold=128):
-    return jp.where(image < threshold, image, 255 - image)
+fit = model.fit(
+    train_generator,
+    batch_size=args.batch_size,
+    epochs=args.max_epochs,
+    validation_data=valid_generator,
+    callbacks=callbacks,
+)
 
 
-for key in jax.random.split(key, 20):
-    keys = jax.random.split(key, 3)
-    # img = solarize(image)
-    img = paz.image.random_saturation(keys[0], image.copy())
-    img = paz.image.random_brightness(keys[1], img)
-    img = paz.image.random_contrast(keys[2], img)
-    paz.image.show(img)
+plot.accuracies(
+    [fit.history["val_binary_accuracy"], fit.history["binary_accuracy"]],
+    ["Validation", "Train"],
+    os.path.join(root, "accuracy.pdf"),
+)
+
+
+plot.binary_cross_entropies(
+    [fit.history["val_loss"], fit.history["loss"]],
+    ["Validation", "Train"],
+    os.path.join(root, "losses.pdf"),
+)

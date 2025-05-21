@@ -11,6 +11,7 @@ from keras.layers import (
     Add,
     Input,
     GlobalAveragePooling2D,
+    Rescaling,
 )
 
 
@@ -33,7 +34,8 @@ def xception_block(input_tensor, num_kernels, l2_reg=0.01):
         num_kernels,
         3,
         padding="same",
-        kernel_regularizer=l2(l2_reg),
+        depthwise_regularizer=l2(l2_reg),
+        pointwise_regularizer=l2(l2_reg),
         use_bias=False,
     )(input_tensor)
     x = BatchNormalization()(x)
@@ -42,7 +44,8 @@ def xception_block(input_tensor, num_kernels, l2_reg=0.01):
         num_kernels,
         3,
         padding="same",
-        kernel_regularizer=l2(l2_reg),
+        depthwise_regularizer=l2(l2_reg),
+        pointwise_regularizer=l2(l2_reg),
         use_bias=False,
     )(x)
     x = BatchNormalization()(x)
@@ -52,7 +55,12 @@ def xception_block(input_tensor, num_kernels, l2_reg=0.01):
 
 
 def build_xception(
-    input_shape, num_classes, stem_kernels, block_kernels, l2_reg=0.01
+    input_shape,
+    num_classes,
+    stem_kernels,
+    block_kernels,
+    classifier_activation="softmax",
+    l2_reg=0.01,
 ):
     """Function for instantiating an Xception model.
 
@@ -90,7 +98,7 @@ def build_xception(
 
     x = Conv2D(num_classes, 3, kernel_regularizer=l2(l2_reg), padding="same")(x)
     x = GlobalAveragePooling2D()(x)
-    output = Activation("softmax", name="label")(x)
+    output = Activation(classifier_activation, name="label")(x)
 
     model_name = "-".join(
         [
@@ -104,31 +112,44 @@ def build_xception(
     return model
 
 
-def build_minixception(input_shape, num_classes, l2_reg=0.01):
-    """Function for instantiating an Mini-Xception model.
+def MiniXception(
+    input_shape,
+    num_classes,
+    classifier_activation="softmax",
+    preprocess=None,
+    l2_reg=0.01,
+):
+    """Build MiniXception (see references).
 
     # Arguments
-        input_shape: List corresponding to the input shape
-            of the model.
-        num_classes: Integer.
-        l2_reg. Float. L2 regularization used
-            in the convolutional kernels.
+        input_shape: List of three integers e.g. ``[H, W, 3]``
+        num_classes: Int.
+        weights: ``None`` or string with pre-trained dataset. Valid datasets
+            include only ``FER``.
 
     # Returns
-        Tensorflow-Keras model.
-    """
+        Keras model.
 
+    # References
+       - [Real-time Convolutional Neural Networks for Emotion and
+            Gender Classification](https://arxiv.org/abs/1710.07557)
+    """
     regularization = l2(l2_reg)
 
     # base
     img_input = Input(input_shape)
-    x = Conv2D(
-        5,
-        (3, 3),
-        strides=(1, 1),
-        kernel_regularizer=regularization,
-        use_bias=False,
-    )(img_input)
+    if preprocess is None:
+        x = Conv2D(
+            5,
+            (3, 3),
+            strides=(1, 1),
+            kernel_regularizer=regularization,
+            use_bias=False,
+        )(img_input)
+    elif preprocess == "rescale":
+        x = Rescaling(scale=1 / 127.5, offset=-1)(img_input)
+    else:
+        raise ValueError("Preprocess must be None 'rescale' or 'normalize'")
     x = BatchNormalization()(x)
     x = Activation("relu")(x)
     x = Conv2D(
@@ -250,33 +271,9 @@ def build_minixception(input_shape, num_classes, l2_reg=0.01):
 
     x = Conv2D(num_classes, (3, 3), padding="same")(x)
     x = GlobalAveragePooling2D()(x)
-    output = Activation("softmax", name="predictions")(x)
+    output = Activation(classifier_activation, name="predictions")(x)
 
     model = Model(img_input, output)
-    return model
-
-
-def MiniXception(input_shape, num_classes):
-    """Build MiniXception (see references).
-
-    # Arguments
-        input_shape: List of three integers e.g. ``[H, W, 3]``
-        num_classes: Int.
-        weights: ``None`` or string with pre-trained dataset. Valid datasets
-            include only ``FER``.
-
-    # Returns
-        Keras model.
-
-    # References
-       - [Real-time Convolutional Neural Networks for Emotion and
-            Gender Classification](https://arxiv.org/abs/1710.07557)
-    """
-    stem_kernels = [32, 64]
-    block_data = [128, 128, 256, 256, 512, 512, 1024]
-    model_inputs = (input_shape, num_classes, stem_kernels, block_data)
-    model = build_xception(*model_inputs)
-    model._name = "MINI-XCEPTION"
     return model
 
 
@@ -290,7 +287,7 @@ def MiniXceptionFER():
        - [Real-time Convolutional Neural Networks for Emotion and
             Gender Classification](https://arxiv.org/abs/1710.07557)
     """
-    model = build_minixception((48, 48, 1), 7)
+    model = MiniXception((48, 48, 1), 7)
     filename = "fer2013_mini_XCEPTION.hdf5"
     URL = "https://github.com/oarriaga/altamira-data/releases/download/v0.6/"
     path = get_file(filename, URL + filename, cache_subdir="paz/models")
