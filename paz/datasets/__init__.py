@@ -20,7 +20,7 @@ def build_name_to_arg(class_names):
 
 
 def labels(name):
-    if name in ["VOC2007", "VOC2012"]:
+    if name in ["VOC", "VOC2007", "VOC2012"]:
         class_names = voc.get_class_names()
     elif name == "SHAPES":
         class_names = shapes.get_class_names()
