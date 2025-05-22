@@ -70,8 +70,8 @@ def write(filepath, image):
     return cv2.imwrite(filepath, image)
 
 
-def resize(image, shape, method="bilinear"):
-    return jax.image.resize(image, (*shape, image.shape[-1]), method)
+def resize(image, shape, method="bilinear", antialias=True):
+    return jax.image.resize(image, (*shape, image.shape[-1]), method, antialias)
 
 
 def scale(image, scale, method="bilinear"):
