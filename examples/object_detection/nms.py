@@ -72,3 +72,9 @@ def apply_per_class_NMS(
     keep_masks = jp.concatenate(keep_masks, 0)
     non_suppressed_detections = jp.concatenate(non_suppressed_detections, 0)
     return jp.where(keep_masks, non_suppressed_detections, -1)
+
+
+def filter_by_score(detections, threshold):
+    """Filters detections by scores."""
+    scores = jp.max(paz.boxes.get_scores(detections), axis=1)
+    return jp.where(scores >= threshold, detections, -1)
