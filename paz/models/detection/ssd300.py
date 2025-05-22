@@ -342,5 +342,5 @@ def SSD300(
         ]
         by_name = True if model_filename in finetunning_model_names else False
         model.load_weights(weights_path, by_name=by_name)
-    model.prior_boxes = create_prior_boxes("VOC")
+    # model.prior_boxes = create_prior_boxes("VOC")
     return model
