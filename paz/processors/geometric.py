@@ -358,11 +358,11 @@ def random_sample_crop(key, image, boxes, probability, max_trials, IoU_threshold
     """
     apply_crop = should_apply_crop(key, probability)
     labels, bounding_boxes, IoU_mode = extract_boxes_and_labels(key, boxes, IoU_thresholds)
-    if (not apply_crop) or (IoU_thresholds[IoU_mode] is None):
-        return image, boxes
-    return attempt_crop_with_IoU(
-        key, image, labels, bounding_boxes, max_trials, IoU_thresholds[IoU_mode], boxes
-    )
+    if not ((not apply_crop) or (IoU_thresholds[IoU_mode] is None)):
+        image, boxes = attempt_crop_with_IoU(
+            key, image, labels, bounding_boxes, max_trials, IoU_thresholds[IoU_mode], boxes
+        )
+    return image, boxes
 
 
 def RandomSampleCrop(probability=0.5, max_trials=50, seed=0):
