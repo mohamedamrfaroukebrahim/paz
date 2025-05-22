@@ -85,7 +85,7 @@ def to_one_hot_vector(boxes_and_scores, class_arg, num_classes):
     return boxes_and_one_hot_vectors
 
 
-def apply_NMS(sorted_boxes_with_scores, iou_thresh=0.45):
+def apply_NMS_old(sorted_boxes_with_scores, iou_thresh=0.45):
     top_k_boxes = paz.detection.get_boxes(sorted_boxes_with_scores)
     top_k_boxes_args = jp.arange(len(top_k_boxes))
 
@@ -111,6 +111,65 @@ def apply_NMS(sorted_boxes_with_scores, iou_thresh=0.45):
     initial_mask = jp.zeros(len(top_k_boxes), dtype=bool)
     _, keep_mask = jax.lax.scan(step, initial_mask, top_k_boxes_args)
     return keep_mask
+
+
+def apply_NMS(sorted_boxes_with_scores, iou_thresh=0.45, epsilon=0.01):
+    top_k_boxes = paz.detection.get_boxes(sorted_boxes_with_scores)
+    top_k_boxes_args = jp.arange(len(top_k_boxes))
+    num_total_boxes = top_k_boxes.shape[0]
+    # jax.debug.print("-----------------------------------")
+
+    # def do_continue(state):
+    #     suppressed_mask, top_k_box_arg = state
+    #     all_are_suppressed = jp.all(suppressed_mask)
+    #     out_of_bounds = top_k_box_arg >= len(top_k_boxes)
+    #     return jp.logical_not(jp.logical_or(all_are_suppressed, out_of_bounds))
+
+    def do_continue(state):
+        suppressed_mask, top_k_box_arg = state
+        in_bounds = top_k_box_arg < num_total_boxes
+
+        def any_unprocessed_unsuppressed():
+            is_in_suffix_to_check = top_k_boxes_args >= top_k_box_arg
+            is_unsuppressed = jp.logical_not(suppressed_mask)
+            unsuppressed_in_suffix = jp.logical_and(
+                is_unsuppressed, is_in_suffix_to_check
+            )
+            return jp.any(unsuppressed_in_suffix)
+
+        return jax.lax.cond(
+            in_bounds, any_unprocessed_unsuppressed, lambda: False
+        )
+
+    def step(state):
+        suppressed_mask, top_k_box_arg = state
+        is_suppressed = suppressed_mask[top_k_box_arg]
+
+        def suppress():
+            current_box = top_k_boxes[top_k_box_arg]
+            # current_box = jp.expand_dims(current_box, 0)
+            # ious = paz.boxes.compute_IOUs(current_box, top_k_boxes)
+            ious = paz.boxes.compute_IOU(current_box, top_k_boxes)
+            # ious = jp.squeeze(ious, 0)
+            is_not_this_box = top_k_boxes_args != top_k_box_arg
+            do_suppress = (ious > iou_thresh) & is_not_this_box
+            # there will always be one box that is not suppressed
+            # some sort of counting would be better that counts how
+            # many boxes are suppressed and checks how many are left
+            return jp.logical_or(suppressed_mask, do_suppress)
+
+        def do_nothing():
+            return suppressed_mask
+
+        new_suppressed_mask = jax.lax.cond(is_suppressed, do_nothing, suppress)
+        return (new_suppressed_mask, top_k_box_arg + 1)
+
+    scores = jp.squeeze(paz.detection.get_scores(sorted_boxes_with_scores), -1)
+    suppressed_mask = scores < epsilon
+    state = (suppressed_mask, 0)
+    suppressed_mask, num_steps = jax.lax.while_loop(do_continue, step, state)
+    # jax.debug.print("{num_steps}", num_steps=num_steps)
+    return jp.logical_not(suppressed_mask)  # keep mask
 
 
 def apply_per_class_NMS_old(
@@ -151,6 +210,7 @@ def single_class(
         class_detections, class_arg, num_classes
     )
     return class_detections, class_keep_mask
+    # return class_detections, jp.zeros_like(class_detections[:, 0], dtype=bool)
 
 
 def apply_per_class_NMS(

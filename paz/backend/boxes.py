@@ -152,6 +152,30 @@ def from_selection(image, radius=5, color=(255, 0, 0), window_name="image"):
     return jp.array(boxes)
 
 
+def compute_IOU(box_A, boxes_B):
+    """Computes intersection over union between `box_A` and `boxes_B`.
+
+    # Arguments
+        box_A: JAX Numpy array with shape `(4,)` representing a single box
+            in corner form (x_min, y_min, x_max, y_max).
+        boxes_B: JAX Numpy array with shape `(num_boxes_b, 4)` representing
+            multiple boxes in corner form.
+
+    # Returns
+        JAX Numpy array of shape `(num_boxes_b,)` containing IoUs.
+    """
+    xy_min_inter = jp.maximum(box_A[0:2], boxes_B[:, 0:2])
+    xy_max_inter = jp.minimum(box_A[2:4], boxes_B[:, 2:4])
+    inter_wh = jp.maximum(0.0, xy_max_inter - xy_min_inter)
+    intersection_area = inter_wh[:, 0] * inter_wh[:, 1]
+    area_a = (box_A[2] - box_A[0]) * (box_A[3] - box_A[1])
+    areas_b = (boxes_B[:, 2] - boxes_B[:, 0]) * (boxes_B[:, 3] - boxes_B[:, 1])
+    union_area = (area_a + areas_b) - intersection_area
+    union_area = jp.maximum(union_area, 1e-8)
+    iou = intersection_area / union_area
+    return jp.clip(iou, 0.0, 1.0)
+
+
 def compute_IOUs(boxes_A, boxes_B):
     """Computes intersection over union (IOU) between `boxes_A` and `boxes_B`.
 

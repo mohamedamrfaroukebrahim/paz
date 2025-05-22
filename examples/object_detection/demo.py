@@ -29,7 +29,7 @@ def postprocess_SSD(
     detections = jp.squeeze(detections, axis=0)
     detections = paz.detection.decode(detections, prior_boxes, variances)
     detections = paz.detection.remove_class(detections, 0)
-    NMS_args = (len(class_names), IOU_thresh, top_k)
+    NMS_args = (len(class_names), IOU_thresh, top_k, 0.01)
     detections = paz.detection.apply_per_class_NMS(detections, *NMS_args)
     detections = paz.detection.filter_by_score(detections, score_thresh)
     return detections
@@ -57,11 +57,12 @@ def detect_SSD(
             IOU_thresh,
             top_k,
             variances,
-        )
+        ),
+        device=jax.devices("cpu")[0],
     )(predictions)
 
 
-def SSD300(score_thresh=0.60, IOU_thresh=0.45, top_k=100):
+def SSD300(score_thresh=0.60, IOU_thresh=0.45, top_k=200):
     model = paz.models.detection.SSD300()
     model.compile(jit_compile=True)
     prior_boxes = paz.models.detection.utils.create_prior_boxes("VOC")
@@ -95,6 +96,7 @@ if __name__ == "__main__":
     # detections = pipeline(image)
     # print(detections)
     # print(filter_invalid_boxes(detections))
+    # also add to condition a small threshold check
 
     # model = paz.models.detection.SSD300()
     # y = model(jp.ones((1, 300, 300, 3)))
