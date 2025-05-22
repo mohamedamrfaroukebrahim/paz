@@ -113,7 +113,7 @@ def apply_NMS(sorted_boxes_with_scores, iou_thresh=0.45):
     return keep_mask
 
 
-def apply_per_class_NMS(
+def apply_per_class_NMS_old(
     detections,
     num_classes,
     iou_thresh=0.45,
@@ -126,7 +126,6 @@ def apply_per_class_NMS(
     for class_arg in range(num_classes):
         class_detections = to_score(detections, class_arg)
         class_detections = select_top_k(class_detections, top_k)
-        print(class_detections)
         non_suppressed = apply_NMS(class_detections, iou_thresh)
         valid_scores = paz.detection.split(class_detections)[1] >= epsilon
         non_suppressed = jp.expand_dims(non_suppressed, axis=-1)
@@ -137,6 +136,47 @@ def apply_per_class_NMS(
     keep_masks = jp.concatenate(keep_masks)
     non_suppressed_detections = jp.concatenate(non_suppressed_detections, 0)
     return jp.where(keep_masks, non_suppressed_detections, -1)
+
+
+def single_class(
+    class_arg, detections, num_classes, iou_thresh, top_k, epsilon
+):
+    class_detections = paz.detection.to_score(detections, class_arg)
+    class_detections = paz.detection.select_top_k(class_detections, top_k)
+    non_suppressed = paz.detection.apply_NMS(class_detections, iou_thresh)
+    valid_scores = paz.detection.split(class_detections)[1] >= epsilon
+    non_suppressed = jp.expand_dims(non_suppressed, axis=-1)
+    class_keep_mask = jp.logical_and(valid_scores, non_suppressed)
+    class_detections = paz.detection.to_one_hot_vector(
+        class_detections, class_arg, num_classes
+    )
+    return class_detections, class_keep_mask
+
+
+def apply_per_class_NMS(
+    detections,
+    num_classes,
+    iou_thresh=0.45,
+    top_k=200,
+    epsilon=0.01,
+):
+    multi_class = jax.vmap(
+        single_class,
+        in_axes=(0, None, None, None, None, None),
+    )
+
+    detections, keep_masks = multi_class(
+        jp.arange(num_classes),
+        detections,
+        num_classes,
+        iou_thresh,
+        top_k,
+        epsilon,
+    )
+    detections = detections.reshape(-1, detections.shape[-1])
+    keep_masks = keep_masks.reshape(-1, 1)
+    detections = jp.where(keep_masks, detections, -1.0)
+    return detections
 
 
 def filter_by_score(detections, threshold):
