@@ -53,9 +53,8 @@ def detect_SSD(
     return jax.jit(paz.lock(postprocess_SSD, *arg), device=device)(predictions)
 
 
-def SSD300(score_thresh=0.60, IOU_thresh=0.45, top_k=200):
-    model = paz.models.detection.SSD300()
-    model.compile(jit_compile=True)
+def SSD300VOC(score_thresh=0.60, IOU_thresh=0.45, top_k=200):
+    model = paz.models.detection.SSD300(21, "VOC", "VOC", (300, 300, 3))
     boxes = paz.models.detection.utils.create_prior_boxes("VOC")
     names = paz.datasets.labels("VOC")
     variances = [0.1, 0.1, 0.2, 0.2]
@@ -63,23 +62,25 @@ def SSD300(score_thresh=0.60, IOU_thresh=0.45, top_k=200):
     return paz.lock(detect_SSD, *args)
 
 
-def filter_invalid_boxes(detections_array):
-    is_invalid_row_mask = jp.all(detections_array == -1, axis=1)
-    is_valid_row_mask = jp.logical_not(is_invalid_row_mask)
-    valid_boxes = detections_array[is_valid_row_mask]
-    return valid_boxes
+def SSD512COCO(score_thresh=0.60, IOU_thresh=0.45, top_k=200):
+    model = paz.models.detection.SSD512(81, "COCO", "COCO", (512, 512, 3))
+    boxes = paz.models.detection.utils.create_prior_boxes("COCO")
+    names = paz.datasets.labels("COCO")
+    variances = [0.1, 0.1, 0.2, 0.2]
+    args = (model, boxes, names, score_thresh, IOU_thresh, top_k, variances)
+    return paz.lock(detect_SSD, *args)
 
 
 if __name__ == "__main__":
     import jax
 
     image = paz.image.load("photo_2.jpg")
-    pipeline = SSD300()
-    # print(paz.log.time(pipeline, 20, 1, True, image))
-    detections = pipeline(image)
-    detections = paz.detection.remove_invalid(detections)
-    print(detections)
-    # filter_invalid_boxes
+    pipeline = SSD300VOC()
+    # pipeline = SSD512COCO()
+    print(paz.log.time(pipeline, 20, 1, True, image))
+    # detections = pipeline(image)
+    # detections = paz.detection.remove_invalid(detections)
+    # print(detections)
 
     # model = paz.models.detection.SSD300()
     # y = model(jp.ones((1, 300, 300, 3)))

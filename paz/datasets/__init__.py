@@ -1,4 +1,4 @@
-from paz.datasets import voc, shapes, fer
+from paz.datasets import voc, shapes, fer, coco
 
 
 def load(name, *args, **kwargs):
@@ -26,6 +26,8 @@ def labels(name):
         class_names = shapes.get_class_names()
     elif name == "FER":
         class_names = fer.get_class_names()
+    elif name == "COCO":
+        class_names = coco.get_class_names()
     else:
         raise ValueError
     return class_names
