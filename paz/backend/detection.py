@@ -95,16 +95,15 @@ def apply_NMS(sorted_boxes_with_scores, iou_thresh=0.45, epsilon=0.01):
         in_bounds = top_k_box_arg < num_total_boxes
 
         def any_unprocessed_unsuppressed():
-            is_in_suffix_to_check = top_k_boxes_args >= top_k_box_arg
+            is_suffix = top_k_boxes_args >= top_k_box_arg
             is_unsuppressed = jp.logical_not(suppressed_mask)
-            unsuppressed_in_suffix = jp.logical_and(
-                is_unsuppressed, is_in_suffix_to_check
-            )
+            unsuppressed_in_suffix = jp.logical_and(is_unsuppressed, is_suffix)
             return jp.any(unsuppressed_in_suffix)
 
-        return jax.lax.cond(
-            in_bounds, any_unprocessed_unsuppressed, lambda: False
-        )
+        def do_exit():
+            return False
+
+        return jax.lax.cond(in_bounds, any_unprocessed_unsuppressed, do_exit)
 
     def step(state):
         suppressed_mask, top_k_box_arg = state
@@ -165,8 +164,7 @@ def apply_per_class_NMS(
         top_k,
         epsilon,
     )
-    # detections = detections.reshape(-1, detections.shape[-1])
-    detections = detections.reshape(-1, 6)
+    detections = detections.reshape(-1, detections.shape[-1])
     keep_masks = keep_masks.reshape(-1, 1)
     detections = jp.where(keep_masks, detections, -1.0)
     return detections
