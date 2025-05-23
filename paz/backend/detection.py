@@ -1,5 +1,5 @@
-import jax
 import jax.numpy as jp
+import jax
 import paz
 
 
@@ -124,7 +124,7 @@ def to_score(boxes_and_one_hot_vectors, class_arg):
     return boxes_and_scores
 
 
-def to_one_hot_vector(boxes_and_scores, class_arg, num_classes):
+def to_one_hot(boxes_and_scores, class_arg, num_classes):
     boxes, scores = paz.detection.split(boxes_and_scores)
     one_hot_vectors = jp.zeros((len(boxes), num_classes))
     scores = jp.squeeze(scores, axis=-1)
@@ -177,41 +177,19 @@ def apply_NMS(sorted_boxes_with_scores, iou_thresh=0.45, epsilon=0.01):
     return jp.logical_not(suppressed_mask)  # keep mask
 
 
-def single_class(
-    class_arg, detections, num_classes, iou_thresh, top_k, epsilon
-):
-    class_detections = to_score(detections, class_arg)
-    class_detections = select_top_k(class_detections, top_k)
-    non_suppressed = apply_NMS(class_detections, iou_thresh)
-    valid_scores = split(class_detections)[1] >= epsilon
-    non_suppressed = jp.expand_dims(non_suppressed, axis=-1)
-    class_keep_mask = jp.logical_and(valid_scores, non_suppressed)
-    class_detections = to_one_hot_vector(
-        class_detections, class_arg, num_classes
-    )
-    return class_detections, class_keep_mask
+def apply_per_class_NMS(detections, num_classes, iou_thresh, top_k, epsilon):
 
+    def per_class_NMS(class_arg):
+        class_detections = to_score(detections, class_arg)
+        class_detections = select_top_k(class_detections, top_k)
+        non_suppressed = apply_NMS(class_detections, iou_thresh)
+        valid_scores = get_scores(class_detections) >= epsilon
+        non_suppressed = jp.expand_dims(non_suppressed, axis=-1)
+        class_keep_masks = jp.logical_and(valid_scores, non_suppressed)
+        class_detections = to_one_hot(class_detections, class_arg, num_classes)
+        return class_detections, class_keep_masks
 
-def apply_per_class_NMS(
-    detections,
-    num_classes,
-    iou_thresh=0.45,
-    top_k=200,
-    epsilon=0.01,
-):
-    multi_class = jax.vmap(
-        single_class,
-        in_axes=(0, None, None, None, None, None),
-    )
-
-    detections, keep_masks = multi_class(
-        jp.arange(num_classes),
-        detections,
-        num_classes,
-        iou_thresh,
-        top_k,
-        epsilon,
-    )
+    detections, keep_masks = jax.vmap(per_class_NMS)(jp.arange(num_classes))
     detections = detections.reshape(-1, detections.shape[-1])
     keep_masks = keep_masks.reshape(-1, 1)
     detections = jp.where(keep_masks, detections, -1.0)

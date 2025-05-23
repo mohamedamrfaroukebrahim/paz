@@ -50,7 +50,7 @@ def detect_SSD(
     predictions = model(image)
     arg = (prior_boxes, class_names, score_thresh, IOU_thresh, top_k, variances)
     device = jax.devices("cpu")[0]
-    return jax.jit(paz.lock(postprocess_SSD, *arg), device)(predictions)
+    return jax.jit(paz.lock(postprocess_SSD, *arg), device=device)(predictions)
 
 
 def SSD300(score_thresh=0.60, IOU_thresh=0.45, top_k=200):
@@ -75,9 +75,10 @@ if __name__ == "__main__":
 
     image = paz.image.load("photo_2.jpg")
     pipeline = SSD300()
-    print(paz.log.time(pipeline, 20, 1, True, image))
-    # detections = pipeline(image)
-    # detections = paz.detection.remove_invalid(detections)
+    # print(paz.log.time(pipeline, 20, 1, True, image))
+    detections = pipeline(image)
+    detections = paz.detection.remove_invalid(detections)
+    print(detections)
     # filter_invalid_boxes
 
     # model = paz.models.detection.SSD300()
