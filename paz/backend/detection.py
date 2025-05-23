@@ -33,33 +33,81 @@ def to_one_hot(detections, num_classes):
     return merge(boxes, classes)
 
 
-def encode(detections, priors, variances=[0.1, 0.1, 0.2, 0.2]):
-    boxes = detections[:, :4]
-    boxes = paz.boxes.to_center_form(boxes)
-    center_difference_x = boxes[:, 0:1] - priors[:, 0:1]
-    encoded_center_x = center_difference_x / priors[:, 2:3]
-    center_difference_y = boxes[:, 1:2] - priors[:, 1:2]
-    encoded_center_y = center_difference_y / priors[:, 3:4]
-    encoded_center_x = encoded_center_x / variances[0]
-    encoded_center_y = encoded_center_y / variances[1]
-    encoded_W = jp.log((boxes[:, 2:3] / priors[:, 2:3]) + 1e-8)
-    encoded_H = jp.log((boxes[:, 3:4] / priors[:, 3:4]) + 1e-8)
-    encoded_W = encoded_W / variances[2]
-    encoded_H = encoded_H / variances[3]
-    encoded_boxes = [encoded_center_x, encoded_center_y, encoded_W, encoded_H]
-    return jp.concatenate(encoded_boxes + [detections[:, 4:]], axis=1)
+def encode(matched, priors, variances=[0.1, 0.1, 0.2, 0.2], epislon=1e-8):
+    """Encode matched bounding boxes relative to prior boxes."""
+
+    def encode_centers(boxes_center, priors, variances):
+        """Encode center coordinates using priors and variances."""
+        x_boxes, y_boxes, _, _ = paz.boxes.split(boxes_center)
+        x_prior, y_prior, W_prior, H_prior = paz.boxes.split(priors)
+        x_difference = x_boxes - x_prior
+        y_difference = y_boxes - y_prior
+        x_encoded_center = (x_difference / W_prior) / variances[0]
+        y_encoded_center = (y_difference / H_prior) / variances[1]
+        return x_encoded_center, y_encoded_center
+
+    def encode_sizes(boxes_center, priors, variances):
+        """Encode width and height dimensions."""
+        _, _, W_boxes, H_boxes = paz.boxes.split(boxes_center)
+        _, _, W_prior, H_prior = paz.boxes.split(priors)
+        W_ratio = W_boxes / W_prior
+        H_ratio = H_boxes / H_prior
+        W_encoded = jp.log(W_ratio + epislon) / variances[2]
+        H_encoded = jp.log(H_ratio + epislon) / variances[3]
+        return W_encoded, H_encoded
+
+    boxes_corner, scores = split(matched)
+    boxes_center = paz.boxes.to_center_form(boxes_corner)
+    x_encoded, y_encoded = encode_centers(boxes_center, priors, variances)
+    W_encoded, H_encoded = encode_sizes(boxes_center, priors, variances)
+    encooded_boxes = [x_encoded, y_encoded, W_encoded, H_encoded, scores]
+    return jp.concatenate(encooded_boxes, axis=1)
 
 
 def decode(predictions, priors, variances=[0.1, 0.1, 0.2, 0.2]):
-    center_x = predictions[:, 0:1] * priors[:, 2:3] * variances[0]
-    center_x = center_x + priors[:, 0:1]
-    center_y = predictions[:, 1:2] * priors[:, 3:4] * variances[1]
-    center_y = center_y + priors[:, 1:2]
-    W = priors[:, 2:3] * jp.exp(predictions[:, 2:3] * variances[2])
-    H = priors[:, 3:4] * jp.exp(predictions[:, 3:4] * variances[3])
-    boxes = jp.concatenate([center_x, center_y, W, H], axis=1)
-    boxes = paz.boxes.to_corner_form(boxes)
-    return jp.concatenate([boxes, predictions[:, 4:]], 1)
+    """Decode predicted box parameters to actual coordinates."""
+
+    def decode_center_form_boxes(predictions, priors, variances):
+        """Compute center-form boxes from predictions."""
+
+        def decode_center_x(predictions, priors, variances):
+            """Decode center x-coordinate from predictions."""
+            return (
+                predictions[:, 0:1] * priors[:, 2:3] * variances[0]
+                + priors[:, 0:1]
+            )
+
+        def decode_center_y(predictions, priors, variances):
+            """Decode center y-coordinate from predictions."""
+            return (
+                predictions[:, 1:2] * priors[:, 3:4] * variances[1]
+                + priors[:, 1:2]
+            )
+
+        def decode_W(predictions, priors, variances):
+            """Decode width from predictions."""
+            exp_term = predictions[:, 2:3] * variances[2]
+            return priors[:, 2:3] * jp.exp(exp_term)
+
+        def decode_H(predictions, priors, variances):
+            """Decode height from predictions."""
+            exp_term = predictions[:, 3:4] * variances[3]
+            return priors[:, 3:4] * jp.exp(exp_term)
+
+        center_x = decode_center_x(predictions, priors, variances)
+        center_y = decode_center_y(predictions, priors, variances)
+        W = decode_W(predictions, priors, variances)
+        H = decode_H(predictions, priors, variances)
+
+        return jp.concatenate([center_x, center_y, W, H], axis=1)
+
+    priors_center = priors
+    boxes_center = decode_center_form_boxes(
+        predictions, priors_center, variances
+    )
+    boxes_corner = paz.boxes.to_corner_form(boxes_center)
+
+    return jp.concatenate([boxes_corner, predictions[:, 4:]], axis=1)
 
 
 def select_top_k(boxes_and_scores, top_k=200):

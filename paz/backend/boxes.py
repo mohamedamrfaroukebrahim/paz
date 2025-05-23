@@ -8,7 +8,9 @@ def split(boxes, keepdims=True, axis=1):
     """Split boxes into x_min, y_min, x_max, y_max components."""
     coordinates = jp.split(boxes, 4, axis=axis)
     if not keepdims:
-        coordinates = tuple(jp.squeeze(column, axis=-1) for column in coordinates)
+        coordinates = tuple(
+            jp.squeeze(column, axis=-1) for column in coordinates
+        )
 
     return coordinates
 
@@ -268,10 +270,14 @@ def encode(matched, priors, variances=[0.1, 0.1, 0.2, 0.2]):
 
     priors_center = priors
 
-    encoded_x, encoded_y = encode_centers(boxes_center, priors_center, variances)
+    encoded_x, encoded_y = encode_centers(
+        boxes_center, priors_center, variances
+    )
     encoded_w, encoded_h = encode_sizes(boxes_center, priors_center, variances)
 
-    return jp.concatenate([encoded_x, encoded_y, encoded_w, encoded_h, extras], axis=1)
+    return jp.concatenate(
+        [encoded_x, encoded_y, encoded_w, encoded_h, extras], axis=1
+    )
 
 
 def decode(predictions, priors, variances=[0.1, 0.1, 0.2, 0.2]):
@@ -291,11 +297,17 @@ def decode(predictions, priors, variances=[0.1, 0.1, 0.2, 0.2]):
 
         def decode_center_x(predictions, priors, variances):
             """Decode center x-coordinate from predictions."""
-            return predictions[:, 0:1] * priors[:, 2:3] * variances[0] + priors[:, 0:1]
+            return (
+                predictions[:, 0:1] * priors[:, 2:3] * variances[0]
+                + priors[:, 0:1]
+            )
 
         def decode_center_y(predictions, priors, variances):
             """Decode center y-coordinate from predictions."""
-            return predictions[:, 1:2] * priors[:, 3:4] * variances[1] + priors[:, 1:2]
+            return (
+                predictions[:, 1:2] * priors[:, 3:4] * variances[1]
+                + priors[:, 1:2]
+            )
 
         def decode_W(predictions, priors, variances):
             """Decode width from predictions."""
@@ -315,7 +327,9 @@ def decode(predictions, priors, variances=[0.1, 0.1, 0.2, 0.2]):
         return jp.concatenate([center_x, center_y, W, H], axis=1)
 
     priors_center = priors
-    boxes_center = decode_center_form_boxes(predictions, priors_center, variances)
+    boxes_center = decode_center_form_boxes(
+        predictions, priors_center, variances
+    )
     boxes_corner = to_corner_form(boxes_center)
 
     return jp.concatenate([boxes_corner, predictions[:, 4:]], axis=1)
