@@ -92,11 +92,10 @@ if __name__ == "__main__":
 
     image = paz.image.load("photo_2.jpg")
     pipeline = SSD300()
-    print(paz.log.time(pipeline, 20, 1, True, image))
-    # detections = pipeline(image)
-    # print(detections)
-    # print(filter_invalid_boxes(detections))
-    # also add to condition a small threshold check
+    # print(paz.log.time(pipeline, 20, 1, True, image))
+    detections = pipeline(image)
+    detections = paz.detection.remove_invalid(detections)
+    # filter_invalid_boxes
 
     # model = paz.models.detection.SSD300()
     # y = model(jp.ones((1, 300, 300, 3)))
