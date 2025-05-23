@@ -85,45 +85,10 @@ def to_one_hot_vector(boxes_and_scores, class_arg, num_classes):
     return boxes_and_one_hot_vectors
 
 
-def apply_NMS_old(sorted_boxes_with_scores, iou_thresh=0.45):
-    top_k_boxes = paz.detection.get_boxes(sorted_boxes_with_scores)
-    top_k_boxes_args = jp.arange(len(top_k_boxes))
-
-    def step(suppressed_mask, top_k_arg):
-        is_suppressed = suppressed_mask[top_k_arg]
-
-        def suppress():
-            current_box = top_k_boxes[top_k_arg]
-            current_box = jp.expand_dims(current_box, 0)
-            ious = paz.boxes.compute_IOUs(current_box, top_k_boxes)
-            ious = jp.squeeze(ious, 0)
-            is_not_this_box = top_k_boxes_args != top_k_arg
-            do_suppress = (ious > iou_thresh) & is_not_this_box
-            return jp.logical_or(suppressed_mask, do_suppress)
-
-        def do_nothing():
-            return suppressed_mask
-
-        new_suppressed_mask = jax.lax.cond(is_suppressed, do_nothing, suppress)
-        keep_this_box = jp.logical_not(is_suppressed)
-        return new_suppressed_mask, keep_this_box
-
-    initial_mask = jp.zeros(len(top_k_boxes), dtype=bool)
-    _, keep_mask = jax.lax.scan(step, initial_mask, top_k_boxes_args)
-    return keep_mask
-
-
 def apply_NMS(sorted_boxes_with_scores, iou_thresh=0.45, epsilon=0.01):
     top_k_boxes = paz.detection.get_boxes(sorted_boxes_with_scores)
     top_k_boxes_args = jp.arange(len(top_k_boxes))
     num_total_boxes = top_k_boxes.shape[0]
-    # jax.debug.print("-----------------------------------")
-
-    # def do_continue(state):
-    #     suppressed_mask, top_k_box_arg = state
-    #     all_are_suppressed = jp.all(suppressed_mask)
-    #     out_of_bounds = top_k_box_arg >= len(top_k_boxes)
-    #     return jp.logical_not(jp.logical_or(all_are_suppressed, out_of_bounds))
 
     def do_continue(state):
         suppressed_mask, top_k_box_arg = state
@@ -147,15 +112,9 @@ def apply_NMS(sorted_boxes_with_scores, iou_thresh=0.45, epsilon=0.01):
 
         def suppress():
             current_box = top_k_boxes[top_k_box_arg]
-            # current_box = jp.expand_dims(current_box, 0)
-            # ious = paz.boxes.compute_IOUs(current_box, top_k_boxes)
             ious = paz.boxes.compute_IOU(current_box, top_k_boxes)
-            # ious = jp.squeeze(ious, 0)
             is_not_this_box = top_k_boxes_args != top_k_box_arg
             do_suppress = (ious > iou_thresh) & is_not_this_box
-            # there will always be one box that is not suppressed
-            # some sort of counting would be better that counts how
-            # many boxes are suppressed and checks how many are left
             return jp.logical_or(suppressed_mask, do_suppress)
 
         def do_nothing():
@@ -168,49 +127,22 @@ def apply_NMS(sorted_boxes_with_scores, iou_thresh=0.45, epsilon=0.01):
     suppressed_mask = scores < epsilon
     state = (suppressed_mask, 0)
     suppressed_mask, num_steps = jax.lax.while_loop(do_continue, step, state)
-    # jax.debug.print("{num_steps}", num_steps=num_steps)
     return jp.logical_not(suppressed_mask)  # keep mask
-
-
-def apply_per_class_NMS_old(
-    detections,
-    num_classes,
-    iou_thresh=0.45,
-    top_k=200,
-    epsilon=0.01,
-):
-    # TODO fix destruction of class distribution by "to_score" and "to_vector".
-    non_suppressed_detections, keep_masks = [], []
-    to_vector = paz.lock(to_one_hot_vector, num_classes)
-    for class_arg in range(num_classes):
-        class_detections = to_score(detections, class_arg)
-        class_detections = select_top_k(class_detections, top_k)
-        non_suppressed = apply_NMS(class_detections, iou_thresh)
-        valid_scores = paz.detection.split(class_detections)[1] >= epsilon
-        non_suppressed = jp.expand_dims(non_suppressed, axis=-1)
-        class_keep_mask = jp.logical_and(valid_scores, non_suppressed)
-        class_detections = to_vector(class_detections, class_arg)
-        non_suppressed_detections.append(class_detections)
-        keep_masks.append(class_keep_mask)
-    keep_masks = jp.concatenate(keep_masks)
-    non_suppressed_detections = jp.concatenate(non_suppressed_detections, 0)
-    return jp.where(keep_masks, non_suppressed_detections, -1)
 
 
 def single_class(
     class_arg, detections, num_classes, iou_thresh, top_k, epsilon
 ):
-    class_detections = paz.detection.to_score(detections, class_arg)
-    class_detections = paz.detection.select_top_k(class_detections, top_k)
-    non_suppressed = paz.detection.apply_NMS(class_detections, iou_thresh)
-    valid_scores = paz.detection.split(class_detections)[1] >= epsilon
+    class_detections = to_score(detections, class_arg)
+    class_detections = select_top_k(class_detections, top_k)
+    non_suppressed = apply_NMS(class_detections, iou_thresh)
+    valid_scores = split(class_detections)[1] >= epsilon
     non_suppressed = jp.expand_dims(non_suppressed, axis=-1)
     class_keep_mask = jp.logical_and(valid_scores, non_suppressed)
-    class_detections = paz.detection.to_one_hot_vector(
+    class_detections = to_one_hot_vector(
         class_detections, class_arg, num_classes
     )
     return class_detections, class_keep_mask
-    # return class_detections, jp.zeros_like(class_detections[:, 0], dtype=bool)
 
 
 def apply_per_class_NMS(
@@ -233,7 +165,8 @@ def apply_per_class_NMS(
         top_k,
         epsilon,
     )
-    detections = detections.reshape(-1, detections.shape[-1])
+    # detections = detections.reshape(-1, detections.shape[-1])
+    detections = detections.reshape(-1, 6)
     keep_masks = keep_masks.reshape(-1, 1)
     detections = jp.where(keep_masks, detections, -1.0)
     return detections
@@ -260,3 +193,17 @@ def denormalize(detections, image_shape):
     boxes, scores = split(detections)
     boxes = paz.boxes.denormalize(boxes, image_shape)
     return merge(boxes, scores)
+
+
+def remove_invalid(detections_array, value=-1):
+    is_invalid_row_mask = jp.all(detections_array == value, axis=1)
+    is_valid_row_mask = jp.logical_not(is_invalid_row_mask)
+    valid_boxes = detections_array[is_valid_row_mask]
+    return valid_boxes
+
+
+def to_boxes2D(boxes_and_one_hot_vectors):
+    boxes, one_hot_vectors = split(boxes_and_one_hot_vectors)
+    class_args = jp.argmax(one_hot_vectors, axis=1)
+    scores = one_hot_vectors[class_args]
+    return jp.concatenate([boxes, class_args, scores], axis=1)
