@@ -9,6 +9,9 @@ from .detection import EFFICIENTDETD4
 from .detection import EFFICIENTDETD5
 from .detection import EFFICIENTDETD6
 from .detection import EFFICIENTDETD7
+from .detection import DINOv2ViTS
+from .detection import DINOv2ViTB
+from .detection import DINOv2ViTL
 from .keypoint.simplebaselines import SimpleBaseline
 from .keypoint.projector import Projector
 from .keypoint.keypointnet import KeypointNet

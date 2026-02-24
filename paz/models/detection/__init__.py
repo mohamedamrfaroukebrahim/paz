@@ -9,3 +9,6 @@ from .efficientdet import EFFICIENTDETD4
 from .efficientdet import EFFICIENTDETD5
 from .efficientdet import EFFICIENTDETD6
 from .efficientdet import EFFICIENTDETD7
+from .dino_v2 import DINOv2ViTS
+from .dino_v2 import DINOv2ViTB
+from .dino_v2 import DINOv2ViTL
