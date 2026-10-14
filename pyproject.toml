@@ -49,3 +49,8 @@ Issues = "https://github.com/oarriaga/paz/issues"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["paz*"]
+
+[tool.pytest.ini_options]
+markers = [
+    "heavy: torch/compute-heavy tests; run with --run-heavy",
+]
