@@ -43,14 +43,15 @@ def test_serialization():
 
         # 5. Compare config
         # (Basic check)
-        assert isinstance(loaded_model, DinoVisionTransformer)
-        assert loaded_model.embed_dim == model.embed_dim
+        assert isinstance(loaded_model, keras.Model)
+        loaded_kernel = loaded_model.get_layer("patch_embed_proj").kernel
+        kernel = model.get_layer("patch_embed_proj").kernel
+        assert loaded_kernel.shape[-1] == kernel.shape[-1]
 
-        # 6. Compare output
+        # 6. Compare output, the (class_token, patch_tokens) pair
         output_loaded = loaded_model(input_data, training=False)
-        np.testing.assert_allclose(
-            output_original, output_loaded, rtol=1e-5, atol=1e-5
-        )
+        for original, loaded in zip(output_original, output_loaded):
+            np.testing.assert_allclose(original, loaded, rtol=1e-5, atol=1e-5)
         print("✅ Serialization test passed: Outputs match.")
 
     finally:
@@ -66,15 +67,15 @@ def test_pretrained_instantiation():
 
     try:
         model_s = DINOV3VITS()
-        assert isinstance(model_s, DinoVisionTransformer)
+        assert isinstance(model_s, keras.Model)
         print("✅ DINOV3VITS instantiated.")
 
         model_b = DINOV3VITB()
-        assert isinstance(model_b, DinoVisionTransformer)
+        assert isinstance(model_b, keras.Model)
         print("✅ DINOV3VITB instantiated.")
 
         model_l = DINOV3VITL()
-        assert isinstance(model_l, DinoVisionTransformer)
+        assert isinstance(model_l, keras.Model)
         print("✅ DINOV3VITL instantiated.")
 
     except Exception as e:

@@ -86,14 +86,8 @@ if args.dino not in model_mapping:
 # input_shape should match crop_shape + (3,)
 model = model_mapping[args.dino](input_shape=(args.H_crop, args.W_crop, 3))
 
-# Keras model patch size
-patch_size = model.patch_size
-# patch_size in DINOv3 implementation is a tuple (16, 16) or int?
-# In vision_transformer.py: self.patch_size = patch_size (argument)
-# But PatchEmbed uses make_2tuple.
-# Let's check.
-if isinstance(patch_size, tuple):
-    patch_size = patch_size[0]
+# Keras model patch size, read from the patch embedding convolution
+patch_size = model.get_layer("patch_embed_proj").kernel_size[0]
 
 validate_crop_shape(crop_shape, patch_size)
 

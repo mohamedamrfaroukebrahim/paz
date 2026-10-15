@@ -22,106 +22,102 @@ from paz.models.foundation.dinov3.models.torch_vision_transformer_for_testing im
 )
 
 
+def has_layer(model, name):
+    return name in [layer.name for layer in model.layers]
+
+
+def count_blocks(keras_model):
+    names = [layer.name for layer in keras_model.layers]
+    return sum(name.endswith("_attn") for name in names)
+
+
+def get_block(keras_model, index):
+    def get_block_layer(part):
+        return keras_model.get_layer(f"blocks_{index}_{part}")
+    return get_block_layer
+
+
+def build_probe(keras_model):
+    """Exposes the prepared tokens and the RoPE (sin, cos) tables."""
+    names = ("tokens", "rope_embed_sin", "rope_embed_cos")
+    outputs = [keras_model.get_layer(name).output for name in names]
+    return keras.Model(keras_model.inputs, outputs)
+
+
+def set_pt_weights(keras_layer, pt_layer, pt_state_dict, key, transpose):
+    weight = pt_state_dict[f"{key}.weight"].numpy()
+    weights = [weight.T if transpose else weight]
+    if getattr(pt_layer, "bias", None) is not None:
+        weights.append(pt_state_dict[f"{key}.bias"].numpy())
+    keras_layer.set_weights(weights)
+
+
 def transfer_weights_from_pt_to_keras(pt_model, keras_model):
     pt_state_dict = pt_model.state_dict()
 
     # --- Standalone Weights ---
-    keras_model.cls_token.assign(pt_state_dict["cls_token"].numpy())
-    keras_model.mask_token.assign(pt_state_dict["mask_token"].numpy())
-    if "storage_tokens" in pt_state_dict and keras_model.storage_tokens is not None:
-        keras_model.storage_tokens.assign(pt_state_dict["storage_tokens"].numpy())
+    for name in ("cls_token", "mask_token", "storage_tokens"):
+        if name in pt_state_dict and has_layer(keras_model, name):
+            layer = keras_model.get_layer(name)
+            shape = tuple(layer.weights[0].shape)
+            value = pt_state_dict[name].numpy().reshape(shape)
+            layer.set_weights([value])
 
     # --- Patch Embedding ---
     pe_weights = [pt_state_dict["patch_embed.proj.weight"].permute(2, 3, 1, 0).numpy()]
     if "patch_embed.proj.bias" in pt_state_dict:
         pe_weights.append(pt_state_dict["patch_embed.proj.bias"].numpy())
-    keras_model.patch_embed.projection.set_weights(pe_weights)
+    keras_model.get_layer("patch_embed_proj").set_weights(pe_weights)
 
     # --- Transformer Blocks ---
-    for i in range(len(keras_model.blocks)):
-        block = keras_model.blocks[i]
+    for i in range(count_blocks(keras_model)):
+        block = get_block(keras_model, i)
         pt_block = pt_model.blocks[i]
         pt_block_prefix = f"blocks.{i}"
 
         # Norms
-        norm1_weights = [pt_state_dict[f"{pt_block_prefix}.norm1.weight"].numpy()]
-        if hasattr(pt_block.norm1, "bias") and pt_block.norm1.bias is not None:
-            norm1_weights.append(pt_state_dict[f"{pt_block_prefix}.norm1.bias"].numpy())
-        block.norm1.set_weights(norm1_weights)
-
-        norm2_weights = [pt_state_dict[f"{pt_block_prefix}.norm2.weight"].numpy()]
-        if hasattr(pt_block.norm2, "bias") and pt_block.norm2.bias is not None:
-            norm2_weights.append(pt_state_dict[f"{pt_block_prefix}.norm2.bias"].numpy())
-        block.norm2.set_weights(norm2_weights)
+        for part in ("norm1", "norm2"):
+            keras_norm = block(part)
+            pt_norm = getattr(pt_block, part)
+            key = f"{pt_block_prefix}.{part}"
+            set_pt_weights(keras_norm, pt_norm, pt_state_dict, key, False)
 
         # Attention Layers
-        qkv_weights = [pt_state_dict[f"{pt_block_prefix}.attn.qkv.weight"].T.numpy()]
-        if pt_block.attn.qkv.bias is not None:
-            qkv_weights.append(
-                pt_state_dict[f"{pt_block_prefix}.attn.qkv.bias"].numpy()
-            )
-        block.attn.qkv.set_weights(qkv_weights)
-
-        proj_weights = [pt_state_dict[f"{pt_block_prefix}.attn.proj.weight"].T.numpy()]
-        if pt_block.attn.proj.bias is not None:
-            proj_weights.append(
-                pt_state_dict[f"{pt_block_prefix}.attn.proj.bias"].numpy()
-            )
-        block.attn.proj.set_weights(proj_weights)
+        attention = block("attn")
+        for part in ("qkv", "proj"):
+            keras_dense = attention.get_layer(f"blocks_{i}_attn_{part}")
+            pt_dense = getattr(pt_block.attn, part)
+            key = f"{pt_block_prefix}.attn.{part}"
+            set_pt_weights(keras_dense, pt_dense, pt_state_dict, key, True)
 
         # LayerScale
-        if hasattr(block, "ls1") and hasattr(block.ls1, "gamma"):
-            block.ls1.gamma.assign(
-                pt_state_dict[f"{pt_block_prefix}.ls1.gamma"].numpy()
-            )
-        if hasattr(block, "ls2") and hasattr(block.ls2, "gamma"):
-            block.ls2.gamma.assign(
-                pt_state_dict[f"{pt_block_prefix}.ls2.gamma"].numpy()
-            )
+        for part in ("ls1", "ls2"):
+            if has_layer(keras_model, f"blocks_{i}_{part}"):
+                gamma = pt_state_dict[f"{pt_block_prefix}.{part}.gamma"]
+                block(part).set_weights([gamma.numpy()])
 
         # FFN Layers (Handles both Mlp and SwiGLUFFN)
-        if isinstance(block.mlp, Mlp):
-            fc1_weights = [pt_state_dict[f"{pt_block_prefix}.mlp.fc1.weight"].T.numpy()]
-            if pt_block.mlp.fc1.bias is not None:
-                fc1_weights.append(
-                    pt_state_dict[f"{pt_block_prefix}.mlp.fc1.bias"].numpy()
-                )
-            block.mlp.fc1.set_weights(fc1_weights)
-            fc2_weights = [pt_state_dict[f"{pt_block_prefix}.mlp.fc2.weight"].T.numpy()]
-            if pt_block.mlp.fc2.bias is not None:
-                fc2_weights.append(
-                    pt_state_dict[f"{pt_block_prefix}.mlp.fc2.bias"].numpy()
-                )
-            block.mlp.fc2.set_weights(fc2_weights)
-        elif isinstance(block.mlp, SwiGLUFFN):
-            w1_weights = [pt_state_dict[f"{pt_block_prefix}.mlp.w1.weight"].T.numpy()]
-            if pt_block.mlp.w1.bias is not None:
-                w1_weights.append(
-                    pt_state_dict[f"{pt_block_prefix}.mlp.w1.bias"].numpy()
-                )
-            block.mlp.w1.set_weights(w1_weights)
-            w2_weights = [pt_state_dict[f"{pt_block_prefix}.mlp.w2.weight"].T.numpy()]
-            if pt_block.mlp.w2.bias is not None:
-                w2_weights.append(
-                    pt_state_dict[f"{pt_block_prefix}.mlp.w2.bias"].numpy()
-                )
-            block.mlp.w2.set_weights(w2_weights)
-            w3_weights = [pt_state_dict[f"{pt_block_prefix}.mlp.w3.weight"].T.numpy()]
-            if pt_block.mlp.w3.bias is not None:
-                w3_weights.append(
-                    pt_state_dict[f"{pt_block_prefix}.mlp.w3.bias"].numpy()
-                )
-            block.mlp.w3.set_weights(w3_weights)
+        mlp = block("mlp")
+        if has_layer(mlp, f"blocks_{i}_mlp_fc1"):
+            parts = ("fc1", "fc2")
+        elif has_layer(mlp, f"blocks_{i}_mlp_w1"):
+            parts = ("w1", "w2", "w3")
+        for part in parts:
+            keras_dense = mlp.get_layer(f"blocks_{i}_mlp_{part}")
+            pt_dense = getattr(pt_block.mlp, part)
+            key = f"{pt_block_prefix}.mlp.{part}"
+            set_pt_weights(keras_dense, pt_dense, pt_state_dict, key, True)
 
     # --- Final Layer Norm ---
+    final_norm = keras_model.get_layer("norm")
     final_norm_weights = [pt_state_dict["norm.weight"].numpy()]
-    if hasattr(keras_model.norm, "beta"):
+    if hasattr(final_norm, "beta"):
         final_norm_weights.append(pt_state_dict["norm.bias"].numpy())
-    keras_model.norm.set_weights(final_norm_weights)
+    final_norm.set_weights(final_norm_weights)
 
     if "rope_embed.periods" in pt_state_dict:
         rope_periods = pt_state_dict["rope_embed.periods"].numpy()
-        keras_model.rope_embed.set_weights([rope_periods])
+        keras_model.get_layer("rope_embed").set_weights([rope_periods])
 
 
 def test_final_output_equivalence_with_vitsmall():
@@ -178,7 +174,7 @@ def test_final_output_equivalence_with_vitsmall():
 
     # --- 5. Get Model Outputs ---
     print("Performing inference...")
-    keras_output = keras_model(keras_input, training=False)
+    keras_output, _ = keras_model(keras_input, training=False)
     with torch.no_grad():
         pt_output = pt_model(pt_input, is_training=False)
 
@@ -284,7 +280,8 @@ def test_deep_dive_block_equivalence_vitsmall():
             print(f"       Correcting Keras tensor to continue analysis...")
             return keras.ops.convert_to_tensor(torch_np)
 
-    for i in range(len(keras_model.blocks)):
+    probe = build_probe(keras_model)
+    for i in range(count_blocks(keras_model)):
         print(f"\n--- Analyzing Block {i} ---")
 
         # 1. Create a new, unique input for this block to isolate errors
@@ -296,37 +293,34 @@ def test_deep_dive_block_equivalence_vitsmall():
         pt_input = torch.from_numpy(image_np.transpose(0, 3, 1, 2))
 
         # 2. Get initial tokens
-        keras_tokens, (H_k, W_k) = keras_model.prepare_tokens_with_masks(keras_input)
+        # 3. ... together with the RoPE embeddings
+        keras_tokens, *rope_keras = probe(keras_input)
         pt_tokens, (H_pt, W_pt) = pt_model.prepare_tokens_with_masks(pt_input)
-
-        # 3. Get RoPE embeddings
-        rope_keras = keras_model.rope_embed(H=H_k, W=W_k, training=False)
         rope_torch = pt_model.rope_embed(H=H_pt, W=W_pt)
 
         # 4. Get the corresponding block from each model
-        keras_block = keras_model.blocks[i]
+        keras_block = get_block(keras_model, i)
         pt_block = pt_model.blocks[i]
 
         # --- Deep Dive into the Block ---
 
         # Layer 1: Normalization 1
-        keras_norm1_out = keras_block.norm1(keras_tokens)
+        keras_norm1_out = keras_block("norm1")(keras_tokens)
         pt_norm1_out = pt_block.norm1(pt_tokens)
         keras_norm1_out = _compare_and_correct(
             keras_norm1_out, pt_norm1_out, "Norm1", i
         )
 
         # Layer 2: Attention
-        keras_attn_out = keras_block.attn(
-            keras_norm1_out, rope=rope_keras, training=False
-        )
+        attn_inputs = [keras_norm1_out, *rope_keras]
+        keras_attn_out = keras_block("attn")(attn_inputs, training=False)
         pt_attn_out = pt_block.attn(pt_norm1_out, rope=rope_torch)
         keras_attn_out = _compare_and_correct(
             keras_attn_out, pt_attn_out, "Attention", i
         )
 
         # Layer 3: LayerScale 1 & DropPath 1
-        keras_ls1_out = keras_block.ls1(keras_attn_out, training=False)
+        keras_ls1_out = keras_block("ls1")(keras_attn_out)
         pt_ls1_out = pt_block.ls1(pt_attn_out)
         keras_ls1_out = _compare_and_correct(
             keras_ls1_out, pt_ls1_out, "LayerScale1", i
@@ -340,19 +334,19 @@ def test_deep_dive_block_equivalence_vitsmall():
         )
 
         # Layer 4: Normalization 2
-        keras_norm2_out = keras_block.norm2(keras_res1_out)
+        keras_norm2_out = keras_block("norm2")(keras_res1_out)
         pt_norm2_out = pt_block.norm2(pt_res1_out)
         keras_norm2_out = _compare_and_correct(
             keras_norm2_out, pt_norm2_out, "Norm2", i
         )
 
         # Layer 5: MLP (Feed-Forward Network)
-        keras_mlp_out = keras_block.mlp(keras_norm2_out, training=False)
+        keras_mlp_out = keras_block("mlp")(keras_norm2_out, training=False)
         pt_mlp_out = pt_block.mlp(pt_norm2_out)
         keras_mlp_out = _compare_and_correct(keras_mlp_out, pt_mlp_out, "MLP", i)
 
         # Layer 6: LayerScale 2 & DropPath 2
-        keras_ls2_out = keras_block.ls2(keras_mlp_out, training=False)
+        keras_ls2_out = keras_block("ls2")(keras_mlp_out)
         pt_ls2_out = pt_block.ls2(pt_mlp_out)
         keras_ls2_out = _compare_and_correct(
             keras_ls2_out, pt_ls2_out, "LayerScale2", i
@@ -429,7 +423,7 @@ def test_final_output_equivalence_with_vitbase():
     # --- 5. Get Model Outputs ---
     print("Performing inference...")
     # Get Keras output (inference mode)
-    keras_output = keras_model(keras_input, training=False)
+    keras_output, _ = keras_model(keras_input, training=False)
     # Get PyTorch output (inference mode)
     with torch.no_grad():
         pt_output = pt_model(pt_input, is_training=False)
@@ -537,7 +531,8 @@ def test_deep_dive_block_equivalence_vitbase():
             print(f"       Correcting Keras tensor to continue analysis...")
             return keras.ops.convert_to_tensor(torch_np)
 
-    for i in range(len(keras_model.blocks)):
+    probe = build_probe(keras_model)
+    for i in range(count_blocks(keras_model)):
         print(f"\n--- Analyzing Block {i} ---")
 
         # 1. Create a new, unique input for this block to isolate errors
@@ -549,37 +544,34 @@ def test_deep_dive_block_equivalence_vitbase():
         pt_input = torch.from_numpy(image_np.transpose(0, 3, 1, 2))
 
         # 2. Get initial tokens
-        keras_tokens, (H_k, W_k) = keras_model.prepare_tokens_with_masks(keras_input)
+        # 3. ... together with the RoPE embeddings
+        keras_tokens, *rope_keras = probe(keras_input)
         pt_tokens, (H_pt, W_pt) = pt_model.prepare_tokens_with_masks(pt_input)
-
-        # 3. Get RoPE embeddings
-        rope_keras = keras_model.rope_embed(H=H_k, W=W_k, training=False)
         rope_torch = pt_model.rope_embed(H=H_pt, W=W_pt)
 
         # 4. Get the corresponding block from each model
-        keras_block = keras_model.blocks[i]
+        keras_block = get_block(keras_model, i)
         pt_block = pt_model.blocks[i]
 
         # --- Deep Dive into the Block ---
 
         # Layer 1: Normalization 1
-        keras_norm1_out = keras_block.norm1(keras_tokens)
+        keras_norm1_out = keras_block("norm1")(keras_tokens)
         pt_norm1_out = pt_block.norm1(pt_tokens)
         keras_norm1_out = _compare_and_correct(
             keras_norm1_out, pt_norm1_out, "Norm1", i
         )
 
         # Layer 2: Attention
-        keras_attn_out = keras_block.attn(
-            keras_norm1_out, rope=rope_keras, training=False
-        )
+        attn_inputs = [keras_norm1_out, *rope_keras]
+        keras_attn_out = keras_block("attn")(attn_inputs, training=False)
         pt_attn_out = pt_block.attn(pt_norm1_out, rope=rope_torch)
         keras_attn_out = _compare_and_correct(
             keras_attn_out, pt_attn_out, "Attention", i
         )
 
         # Layer 3: LayerScale 1 & DropPath 1 (DropPath is identity in eval mode)
-        keras_ls1_out = keras_block.ls1(keras_attn_out, training=False)
+        keras_ls1_out = keras_block("ls1")(keras_attn_out)
         pt_ls1_out = pt_block.ls1(pt_attn_out)
         keras_ls1_out = _compare_and_correct(
             keras_ls1_out, pt_ls1_out, "LayerScale1", i
@@ -593,19 +585,19 @@ def test_deep_dive_block_equivalence_vitbase():
         )
 
         # Layer 4: Normalization 2
-        keras_norm2_out = keras_block.norm2(keras_res1_out)
+        keras_norm2_out = keras_block("norm2")(keras_res1_out)
         pt_norm2_out = pt_block.norm2(pt_res1_out)
         keras_norm2_out = _compare_and_correct(
             keras_norm2_out, pt_norm2_out, "Norm2", i
         )
 
         # Layer 5: MLP (Feed-Forward Network)
-        keras_mlp_out = keras_block.mlp(keras_norm2_out, training=False)
+        keras_mlp_out = keras_block("mlp")(keras_norm2_out, training=False)
         pt_mlp_out = pt_block.mlp(pt_norm2_out)
         keras_mlp_out = _compare_and_correct(keras_mlp_out, pt_mlp_out, "MLP", i)
 
         # Layer 6: LayerScale 2 & DropPath 2 (DropPath is identity in eval mode)
-        keras_ls2_out = keras_block.ls2(keras_mlp_out, training=False)
+        keras_ls2_out = keras_block("ls2")(keras_mlp_out)
         pt_ls2_out = pt_block.ls2(pt_mlp_out)
         keras_ls2_out = _compare_and_correct(
             keras_ls2_out, pt_ls2_out, "LayerScale2", i
@@ -678,7 +670,7 @@ def test_final_output_equivalence_with_vitlarge():
     # --- 5. Get Model Outputs ---
     print("Performing inference...")
     # Get Keras output (inference mode)
-    keras_output = keras_model(keras_input, training=False)
+    keras_output, _ = keras_model(keras_input, training=False)
     # Get PyTorch output (inference mode)
     with torch.no_grad():
         pt_output = pt_model(pt_input, is_training=False)
@@ -792,7 +784,8 @@ def test_deep_dive_block_equivalence_vitlarge():
             return keras.ops.convert_to_tensor(torch_np)
 
     # Sequentially test each block
-    for i in range(len(keras_model.blocks)):
+    probe = build_probe(keras_model)
+    for i in range(count_blocks(keras_model)):
         print(f"\n--- Analyzing Block {i} ---")
 
         # 1. Create a new, unique input for this block to isolate errors
@@ -804,37 +797,34 @@ def test_deep_dive_block_equivalence_vitlarge():
         pt_input = torch.from_numpy(image_np.transpose(0, 3, 1, 2))
 
         # 2. Get initial tokens
-        keras_tokens, (H_k, W_k) = keras_model.prepare_tokens_with_masks(keras_input)
+        # 3. ... together with the RoPE embeddings
+        keras_tokens, *rope_keras = probe(keras_input)
         pt_tokens, (H_pt, W_pt) = pt_model.prepare_tokens_with_masks(pt_input)
-
-        # 3. Get RoPE embeddings
-        rope_keras = keras_model.rope_embed(H=H_k, W=W_k, training=False)
         rope_torch = pt_model.rope_embed(H=H_pt, W=W_pt)
 
         # 4. Get the corresponding block from each model
-        keras_block = keras_model.blocks[i]
+        keras_block = get_block(keras_model, i)
         pt_block = pt_model.blocks[i]
 
         # --- Deep Dive into the Block ---
 
         # Layer 1: Normalization 1
-        keras_norm1_out = keras_block.norm1(keras_tokens)
+        keras_norm1_out = keras_block("norm1")(keras_tokens)
         pt_norm1_out = pt_block.norm1(pt_tokens)
         keras_norm1_out = _compare_and_correct(
             keras_norm1_out, pt_norm1_out, "Norm1", i
         )
 
         # Layer 2: Attention
-        keras_attn_out = keras_block.attn(
-            keras_norm1_out, rope=rope_keras, training=False
-        )
+        attn_inputs = [keras_norm1_out, *rope_keras]
+        keras_attn_out = keras_block("attn")(attn_inputs, training=False)
         pt_attn_out = pt_block.attn(pt_norm1_out, rope=rope_torch)
         keras_attn_out = _compare_and_correct(
             keras_attn_out, pt_attn_out, "Attention", i
         )
 
         # Layer 3: LayerScale 1 & DropPath 1 (DropPath is identity in eval mode)
-        keras_ls1_out = keras_block.ls1(keras_attn_out, training=False)
+        keras_ls1_out = keras_block("ls1")(keras_attn_out)
         pt_ls1_out = pt_block.ls1(pt_attn_out)
         keras_ls1_out = _compare_and_correct(
             keras_ls1_out, pt_ls1_out, "LayerScale1", i
@@ -848,19 +838,19 @@ def test_deep_dive_block_equivalence_vitlarge():
         )
 
         # Layer 4: Normalization 2
-        keras_norm2_out = keras_block.norm2(keras_res1_out)
+        keras_norm2_out = keras_block("norm2")(keras_res1_out)
         pt_norm2_out = pt_block.norm2(pt_res1_out)
         keras_norm2_out = _compare_and_correct(
             keras_norm2_out, pt_norm2_out, "Norm2", i
         )
 
         # Layer 5: MLP (Feed-Forward Network)
-        keras_mlp_out = keras_block.mlp(keras_norm2_out, training=False)
+        keras_mlp_out = keras_block("mlp")(keras_norm2_out, training=False)
         pt_mlp_out = pt_block.mlp(pt_norm2_out)
         keras_mlp_out = _compare_and_correct(keras_mlp_out, pt_mlp_out, "MLP", i)
 
         # Layer 6: LayerScale 2 & DropPath 2
-        keras_ls2_out = keras_block.ls2(keras_mlp_out, training=False)
+        keras_ls2_out = keras_block("ls2")(keras_mlp_out)
         pt_ls2_out = pt_block.ls2(pt_mlp_out)
         keras_ls2_out = _compare_and_correct(
             keras_ls2_out, pt_ls2_out, "LayerScale2", i

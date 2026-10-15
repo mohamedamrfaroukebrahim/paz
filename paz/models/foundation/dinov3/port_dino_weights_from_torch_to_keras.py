@@ -33,160 +33,133 @@ from paz.models.foundation.dinov3.models import convnext
 
 
 def transfer_weights_from_pt_to_keras(pt_state_dict, keras_model):
-    """
-    Loads weights from a PyTorch DINOv3 state_dict into a native Keras DINOv3 model.
+    """Loads a PyTorch DINOv3 ViT state_dict into a Keras DINOv3 ViT.
+
+    Every target layer is resolved by name with ``get_layer``. Blocks are
+    probed by name, so only the blocks the Keras model holds are ported.
 
     Args:
         pt_state_dict: The state_dict from the pretrained PyTorch model.
-        keras_model: An instance of a Keras DinoVisionTransformer model.
+        keras_model: A ``keras.Model`` built by ``DinoVisionTransformer``.
     """
-    logging.info(f"Starting weight porting for Keras model '{keras_model.name}'...")
-
-    # --- Standalone Weights (cls_token, mask_token, storage_tokens) ---
-    keras_model.cls_token.assign(pt_state_dict["cls_token"].numpy())
-    logging.info("✓ Ported cls_token.")
-
-    keras_model.mask_token.assign(pt_state_dict["mask_token"].numpy())
-    logging.info("✓ Ported mask_token.")
-
-    if "storage_tokens" in pt_state_dict and keras_model.storage_tokens is not None:
-        keras_model.storage_tokens.assign(pt_state_dict["storage_tokens"].numpy())
-        logging.info("✓ Ported storage_tokens.")
-
-    # --- Patch Embedding ---
-    patch_embed_layer = keras_model.patch_embed
-
-    pe_weights = [pt_state_dict["patch_embed.proj.weight"].permute(2, 3, 1, 0).numpy()]
-    if "patch_embed.proj.bias" in pt_state_dict:
-        pe_weights.append(pt_state_dict["patch_embed.proj.bias"].numpy())
-
-    patch_embed_layer.projection.set_weights(pe_weights)
-    logging.info("✓ Ported patch_embed weights.")
-
-    # --- RoPE Embedding (Only periods/inv_freq is set if present) ---
-    if "rope_embed.periods" in pt_state_dict:
-        rope_periods = pt_state_dict["rope_embed.periods"].float().numpy()
-        keras_model.rope_embed.set_weights([rope_periods])
-        logging.info("✓ Ported rope_embed periods.")
-
-    # --- Transformer Blocks ---
-    number_of_blocks = len(keras_model.blocks)
-    logging.info(f"Found {number_of_blocks} transformer blocks to port...")
-
-    for i in range(number_of_blocks):
-        block = keras_model.blocks[i]
-        pt_block_prefix = f"blocks.{i}"
-
-        # Norms (StableLayerNormalization/RMSNorm inherit set_weights from Layer)
-        block.norm1.set_weights(
-            [
-                pt_state_dict[f"{pt_block_prefix}.norm1.weight"].numpy(),
-                pt_state_dict[f"{pt_block_prefix}.norm1.bias"].numpy(),
-            ]
-        )
-        block.norm2.set_weights(
-            [
-                pt_state_dict[f"{pt_block_prefix}.norm2.weight"].numpy(),
-                pt_state_dict[f"{pt_block_prefix}.norm2.bias"].numpy(),
-            ]
-        )
-
-        # Attention Layers
-        block.attn.qkv.set_weights(
-            [
-                pt_state_dict[f"{pt_block_prefix}.attn.qkv.weight"].T.numpy(),
-                pt_state_dict[f"{pt_block_prefix}.attn.qkv.bias"].numpy(),
-            ]
-        )
-        block.attn.proj.set_weights(
-            [
-                pt_state_dict[f"{pt_block_prefix}.attn.proj.weight"].T.numpy(),
-                pt_state_dict[f"{pt_block_prefix}.attn.proj.bias"].numpy(),
-            ]
-        )
-
-        # LayerScale (ls1 and ls2)
-        layer_scale_1_key = f"{pt_block_prefix}.ls1.gamma"
-        if layer_scale_1_key in pt_state_dict and hasattr(block, "ls1"):
-            block.ls1.gamma.assign(pt_state_dict[layer_scale_1_key].numpy())
-
-        layer_scale_2_key = f"{pt_block_prefix}.ls2.gamma"
-        if layer_scale_2_key in pt_state_dict and hasattr(block, "ls2"):
-            block.ls2.gamma.assign(pt_state_dict[layer_scale_2_key].numpy())
-
-        # FFN Layers (Handles both Mlp and SwiGLUFFN)
-        # Check FFN type by checking keys for Mlp first
-        if f"{pt_block_prefix}.mlp.fc1.weight" in pt_state_dict:
-            # Mlp (fc1, fc2)
-            block.mlp.fc1.set_weights(
-                [
-                    pt_state_dict[f"{pt_block_prefix}.mlp.fc1.weight"].T.numpy(),
-                    pt_state_dict[f"{pt_block_prefix}.mlp.fc1.bias"].numpy(),
-                ]
-            )
-            block.mlp.fc2.set_weights(
-                [
-                    pt_state_dict[f"{pt_block_prefix}.mlp.fc2.weight"].T.numpy(),
-                    pt_state_dict[f"{pt_block_prefix}.mlp.fc2.bias"].numpy(),
-                ]
-            )
-        elif f"{pt_block_prefix}.mlp.w1.weight" in pt_state_dict:
-            # SwiGLUFFN (w1, w2, w3) - as found in vision_transformer_test.py
-            block.mlp.w1.set_weights(
-                [
-                    pt_state_dict[f"{pt_block_prefix}.mlp.w1.weight"].T.numpy(),
-                    pt_state_dict[f"{pt_block_prefix}.mlp.w1.bias"].numpy(),
-                ]
-            )
-            block.mlp.w2.set_weights(
-                [
-                    pt_state_dict[f"{pt_block_prefix}.mlp.w2.weight"].T.numpy(),
-                    pt_state_dict[f"{pt_block_prefix}.mlp.w2.bias"].numpy(),
-                ]
-            )
-            block.mlp.w3.set_weights(
-                [
-                    pt_state_dict[f"{pt_block_prefix}.mlp.w3.weight"].T.numpy(),
-                    pt_state_dict[f"{pt_block_prefix}.mlp.w3.bias"].numpy(),
-                ]
-            )
-        else:
-            raise KeyError(
-                f"Could not find FFN weights for block {i}. "
-                "Neither standard MLP nor SwiGLUFFN keys were found."
-            )
-
-        logging.info(f"✓ Ported block {i}.")
-
-    # --- Final Normalization Layers ---
-    keras_model.norm.set_weights(
-        [
-            pt_state_dict["norm.weight"].numpy(),
-            pt_state_dict["norm.bias"].numpy(),
-        ]
-    )
-    logging.info("✓ Ported final 'norm' layer.")
-
-    if keras_model.cls_norm:
-        keras_model.cls_norm.set_weights(
-            [
-                pt_state_dict["cls_norm.weight"].numpy(),
-                pt_state_dict["cls_norm.bias"].numpy(),
-            ]
-        )
-        logging.info("✓ Ported final 'cls_norm' layer.")
-
-    if keras_model.local_cls_norm:
-        keras_model.local_cls_norm.set_weights(
-            [
-                pt_state_dict["local_cls_norm.weight"].numpy(),
-                pt_state_dict["local_cls_norm.bias"].numpy(),
-            ]
-        )
-        logging.info("✓ Ported final 'local_cls_norm' layer.")
-
+    logging.info(f"Starting weight porting for '{keras_model.name}'...")
+    port_tokens(pt_state_dict, keras_model)
+    port_patch_embed(pt_state_dict, keras_model)
+    port_rope_periods(pt_state_dict, keras_model)
+    block_index = 0
+    while has_layer(keras_model, f"blocks_{block_index}_attn"):
+        port_block(pt_state_dict, keras_model, block_index)
+        block_index = block_index + 1
+    logging.info(f"✓ Ported {block_index} transformer blocks.")
+    port_final_norms(pt_state_dict, keras_model)
     logging.info("\n--- Weight porting complete! ---")
     return keras_model
+
+
+def to_numpy(tensor):
+    return tensor.detach().float().numpy()
+
+
+def has_layer(model, name):
+    try:
+        model.get_layer(name)
+    except ValueError:
+        return False
+    return True
+
+
+def set_tokens(model, name, tensor):
+    layer = model.get_layer(name)
+    shape = tuple(layer.weights[0].shape)
+    layer.set_weights([to_numpy(tensor).reshape(shape)])
+    logging.info(f"✓ Ported {name}.")
+
+
+def set_dense(layer, pt_state_dict, key):
+    weights = [to_numpy(pt_state_dict[f"{key}.weight"]).T]
+    if f"{key}.bias" in pt_state_dict:
+        weights.append(to_numpy(pt_state_dict[f"{key}.bias"]))
+    layer.set_weights(weights)
+
+
+def set_norm(layer, pt_state_dict, key):
+    weights = [to_numpy(pt_state_dict[f"{key}.weight"])]
+    if f"{key}.bias" in pt_state_dict:
+        weights.append(to_numpy(pt_state_dict[f"{key}.bias"]))
+    layer.set_weights(weights)
+
+
+def port_tokens(pt_state_dict, keras_model):
+    set_tokens(keras_model, "cls_token", pt_state_dict["cls_token"])
+    set_tokens(keras_model, "mask_token", pt_state_dict["mask_token"])
+    has_storage = has_layer(keras_model, "storage_tokens")
+    if "storage_tokens" in pt_state_dict and has_storage:
+        storage_tokens = pt_state_dict["storage_tokens"]
+        set_tokens(keras_model, "storage_tokens", storage_tokens)
+
+
+def port_patch_embed(pt_state_dict, keras_model):
+    kernel = pt_state_dict["patch_embed.proj.weight"].permute(2, 3, 1, 0)
+    weights = [to_numpy(kernel)]
+    if "patch_embed.proj.bias" in pt_state_dict:
+        weights.append(to_numpy(pt_state_dict["patch_embed.proj.bias"]))
+    keras_model.get_layer("patch_embed_proj").set_weights(weights)
+    logging.info("✓ Ported patch_embed weights.")
+
+
+def port_rope_periods(pt_state_dict, keras_model):
+    if "rope_embed.periods" in pt_state_dict:
+        periods = to_numpy(pt_state_dict["rope_embed.periods"])
+        keras_model.get_layer("rope_embed").set_weights([periods])
+        logging.info("✓ Ported rope_embed periods.")
+
+
+def port_block(pt_state_dict, keras_model, index):
+    prefix, name = f"blocks.{index}", f"blocks_{index}"
+    norm1 = keras_model.get_layer(f"{name}_norm1")
+    norm2 = keras_model.get_layer(f"{name}_norm2")
+    set_norm(norm1, pt_state_dict, f"{prefix}.norm1")
+    set_norm(norm2, pt_state_dict, f"{prefix}.norm2")
+    attention = keras_model.get_layer(f"{name}_attn")
+    qkv = attention.get_layer(f"{name}_attn_qkv")
+    proj = attention.get_layer(f"{name}_attn_proj")
+    set_dense(qkv, pt_state_dict, f"{prefix}.attn.qkv")
+    set_dense(proj, pt_state_dict, f"{prefix}.attn.proj")
+    port_layer_scales(pt_state_dict, keras_model, prefix, name)
+    port_feedforward(pt_state_dict, keras_model, prefix, name)
+
+
+def port_layer_scales(pt_state_dict, keras_model, prefix, name):
+    for index in (1, 2):
+        key = f"{prefix}.ls{index}.gamma"
+        target = f"{name}_ls{index}"
+        if key in pt_state_dict and has_layer(keras_model, target):
+            gamma = to_numpy(pt_state_dict[key])
+            keras_model.get_layer(target).set_weights([gamma])
+
+
+def port_feedforward(pt_state_dict, keras_model, prefix, name):
+    if f"{prefix}.mlp.fc1.weight" in pt_state_dict:
+        parts = ("fc1", "fc2")
+    elif f"{prefix}.mlp.w1.weight" in pt_state_dict:
+        parts = ("w1", "w2", "w3")
+    else:
+        message = f"Could not find FFN weights for block {prefix}. "
+        raise KeyError(message + "Neither MLP nor SwiGLUFFN keys exist.")
+    feedforward = keras_model.get_layer(f"{name}_mlp")
+    for part in parts:
+        layer = feedforward.get_layer(f"{name}_mlp_{part}")
+        set_dense(layer, pt_state_dict, f"{prefix}.mlp.{part}")
+    logging.info(f"✓ Ported block {name}.")
+
+
+def port_final_norms(pt_state_dict, keras_model):
+    set_norm(keras_model.get_layer("norm"), pt_state_dict, "norm")
+    logging.info("✓ Ported final 'norm' layer.")
+    if has_layer(keras_model, "cls_norm"):
+        cls_norm = keras_model.get_layer("cls_norm")
+        set_norm(cls_norm, pt_state_dict, "cls_norm")
+        logging.info("✓ Ported final 'cls_norm' layer.")
 
 
 def transfer_weights_convnext(pt_state_dict, keras_model):

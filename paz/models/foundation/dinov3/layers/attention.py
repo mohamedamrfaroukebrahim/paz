@@ -1,267 +1,119 @@
-import keras
-from keras import ops
-from keras.layers import Dense, Dropout
-from paz.models.foundation.dinov3.utils.utils import cat_keep_shapes, uncat_with_shapes
+from keras import Input, Model, ops
+from keras.layers import Dense, Dropout, Reshape
+
+from paz.models.transformers.embeddings.rotary import rotate_half
 
 
-def compute_multihead_self_attention(qkv, num_heads, head_dim, dim, scale, dropout_layer, rope, training):
-    batch_size, num_tokens, _ = ops.shape(qkv)
-    queries, keys, values = split_qkv_into_queries_keys_values(qkv, num_heads, head_dim)
-    queries = transpose_for_multihead_attention(queries)
-    keys = transpose_for_multihead_attention(keys)
-    values = transpose_for_multihead_attention(values)
+def SelfAttention(dim, num_heads=8, qkv_bias=False, proj_bias=True,
+                  attn_drop=0.0, proj_drop=0.0, use_rope=False,
+                  num_prefix_tokens=0, name="attn"):
+    """Multi-head self attention returned as a ``keras.Model``.
 
+    With ``use_rope`` the model takes ``[tokens, sin, cos]`` and rotates
+    every query and key except the first ``num_prefix_tokens``.
+    """
+    head_dim = compute_head_dim(dim, num_heads)
+    tokens = Input((None, dim), name=f"{name}_tokens")
+    rope = build_rope_inputs(head_dim, name) if use_rope else None
+    qkv = project_qkv(tokens, dim, qkv_bias, name)
+    args = (qkv, num_heads, head_dim, rope, num_prefix_tokens, attn_drop)
+    context = attend(*args, False, name)
+    outputs = project_output(context, dim, proj_bias, proj_drop, name)
+    inputs = tokens if rope is None else [tokens, *rope]
+    return Model(inputs, outputs, name=name)
+
+
+def CausalSelfAttention(dim, num_heads=8, qkv_bias=False, proj_bias=True,
+                        attn_drop=0.0, proj_drop=0.0, is_causal=True,
+                        name="attention"):
+    head_dim = compute_head_dim(dim, num_heads)
+    tokens = Input((None, dim), name=f"{name}_tokens")
+    qkv = project_qkv(tokens, dim, qkv_bias, name)
+    args = (qkv, num_heads, head_dim, None, 0, attn_drop, is_causal)
+    context = attend(*args, name)
+    outputs = project_output(context, dim, proj_bias, proj_drop, name)
+    return Model(tokens, outputs, name=name)
+
+
+def compute_head_dim(dim, num_heads):
+    if dim % num_heads != 0:
+        message = f"dim ({dim}) must be divisible by num_heads ({num_heads})."
+        raise ValueError(message)
+    return dim // num_heads
+
+
+def build_rope_inputs(head_dim, name):
+    sin = Input((None, None, head_dim), name=f"{name}_sin")
+    cos = Input((None, None, head_dim), name=f"{name}_cos")
+    return sin, cos
+
+
+def project_qkv(tokens, dim, qkv_bias, name):
+    return Dense(dim * 3, use_bias=qkv_bias, name=f"{name}_qkv")(tokens)
+
+
+def project_output(context, dim, proj_bias, proj_drop, name):
+    outputs = Dense(dim, use_bias=proj_bias, name=f"{name}_proj")(context)
+    return apply_dropout(outputs, proj_drop, f"{name}_proj_drop")
+
+
+def attend(qkv, num_heads, head_dim, rope, num_prefix_tokens, attn_drop,
+           is_causal, name):
+    query, key, value = split_heads(qkv, num_heads, head_dim, name)
     if rope is not None:
-        queries, keys = apply_rope_to_queries_and_keys(queries, keys, rope)
-
-    attended_values = compute_attention_output(queries, keys, values, scale, dropout_layer, training)
-    return merge_attention_heads(attended_values, batch_size, num_tokens, dim)
-
-
-def compute_causal_multihead_self_attention(
-    qkv, num_heads, head_dim, dim, scale, dropout_layer, is_causal, training
-):
-    batch_size, num_tokens, _ = ops.shape(qkv)
-    queries, keys, values = split_qkv_into_queries_keys_values(qkv, num_heads, head_dim)
-    queries = transpose_for_multihead_attention(queries)
-    keys = transpose_for_multihead_attention(keys)
-    values = transpose_for_multihead_attention(values)
-
-    attention_scores = compute_scaled_attention_scores(queries, keys, scale)
-
+        query, key = apply_rope(query, key, rope, num_prefix_tokens)
+    scores = compute_scores(query, key, head_dim)
     if is_causal:
-        sequence_length = ops.shape(queries)[2]
-        causal_mask = create_causal_attention_mask(sequence_length)
-        attention_scores = attention_scores + causal_mask
-
-    attention_weights = ops.softmax(attention_scores, axis=-1)
-    attention_weights = dropout_layer(attention_weights, training=training)
-
-    attended_values = apply_attention_to_values(attention_weights, values)
-    return merge_attention_heads(attended_values, batch_size, num_tokens, dim)
+        scores = scores + build_causal_mask(scores)
+    weights = ops.softmax(scores, axis=-1)
+    weights = apply_dropout(weights, attn_drop, f"{name}_attn_drop")
+    context = ops.matmul(weights, value)
+    return merge_heads(context, num_heads * head_dim, name)
 
 
-def compute_attention_output(queries, keys, values, scale, dropout_layer, training):
-    attention_scores = compute_scaled_attention_scores(queries, keys, scale)
-    attention_weights = ops.softmax(attention_scores, axis=-1)
-    attention_weights = dropout_layer(attention_weights, training=training)
-    attended_values = apply_attention_to_values(attention_weights, values)
-    return attended_values
+def split_heads(qkv, num_heads, head_dim, name):
+    shape = (-1, 3, num_heads, head_dim)
+    heads = Reshape(shape, name=f"{name}_split_heads")(qkv)
+    heads = ops.transpose(heads, (2, 0, 3, 1, 4))
+    return heads[0], heads[1], heads[2]
 
 
-def apply_rope_to_queries_and_keys(queries, keys, rope):
+def merge_heads(context, dim, name):
+    context = ops.transpose(context, (0, 2, 1, 3))
+    return Reshape((-1, dim), name=f"{name}_merge_heads")(context)
+
+
+def compute_scores(query, key, head_dim):
+    scores = ops.matmul(query, ops.transpose(key, (0, 1, 3, 2)))
+    return scores * head_dim**-0.5
+
+
+def build_causal_mask(scores):
+    ones = ops.ones_like(scores[0, 0])
+    return ops.triu(ones, k=1) * -1e9
+
+
+def apply_rope(query, key, rope, num_prefix_tokens):
     sin, cos = rope
-    rope_sequence_length = ops.shape(sin)[-2]
-
-    queries_prefix, queries_main, keys_prefix, keys_main = split_queries_and_keys_for_rope(
-        queries, keys, rope_sequence_length
-    )
-
-    queries_rotated = apply_rotary_position_embedding(queries_main, sin, cos)
-    keys_rotated = apply_rotary_position_embedding(keys_main, sin, cos)
-
-    queries = ops.concatenate((queries_prefix, queries_rotated), axis=-2)
-    keys = ops.concatenate((keys_prefix, keys_rotated), axis=-2)
-
-    return queries, keys
+    query = rotate_tokens(query, sin, cos, num_prefix_tokens)
+    key = rotate_tokens(key, sin, cos, num_prefix_tokens)
+    return query, key
 
 
-def apply_projection_with_dropout(x, projection_layer, dropout_layer, training):
-    projected = projection_layer(x)
-    return dropout_layer(projected, training=training)
-
-
-def split_qkv_into_queries_keys_values(qkv, num_heads, head_dim):
-    batch_size, num_tokens, _ = ops.shape(qkv)
-    qkv_reshaped = ops.reshape(qkv, (batch_size, num_tokens, 3, num_heads, head_dim))
-    queries, keys, values = ops.unstack(qkv_reshaped, axis=2)
-    return queries, keys, values
-
-
-def transpose_for_multihead_attention(tensor):
-    return ops.transpose(tensor, axes=[0, 2, 1, 3])
-
-
-def compute_scaled_attention_scores(queries, keys, scale):
-    keys_transposed = ops.transpose(keys, axes=[0, 1, 3, 2])
-    attention_scores = ops.matmul(queries, keys_transposed)
-    return attention_scores * scale
-
-
-def apply_attention_to_values(attention_weights, values):
-    return ops.matmul(attention_weights, values)
-
-
-def merge_attention_heads(tensor, batch_size, num_tokens, dim):
-    tensor_transposed = ops.transpose(tensor, axes=[0, 2, 1, 3])
-    return ops.reshape(tensor_transposed, (batch_size, num_tokens, dim))
-
-
-def create_causal_attention_mask(sequence_length):
-    mask = ops.triu(ops.ones((sequence_length, sequence_length)), k=1)
-    return mask * -1e9
-
-
-def split_queries_and_keys_for_rope(queries, keys, rope_sequence_length):
-    num_prefix_tokens = ops.shape(queries)[-2] - rope_sequence_length
-
-    if num_prefix_tokens < 0:
-        raise ValueError("Input sequence is shorter than the RoPE sequence.")
-
-    queries_prefix = queries[:, :, :num_prefix_tokens, :]
-    queries_main = queries[:, :, num_prefix_tokens:, :]
-    keys_prefix = keys[:, :, :num_prefix_tokens, :]
-    keys_main = keys[:, :, num_prefix_tokens:, :]
-
-    return queries_prefix, queries_main, keys_prefix, keys_main
+def rotate_tokens(x, sin, cos, num_prefix_tokens):
+    if num_prefix_tokens == 0:
+        return apply_rotary_position_embedding(x, sin, cos)
+    prefix = x[:, :, :num_prefix_tokens, :]
+    rotated = x[:, :, num_prefix_tokens:, :]
+    rotated = apply_rotary_position_embedding(rotated, sin, cos)
+    return ops.concatenate((prefix, rotated), axis=-2)
 
 
 def apply_rotary_position_embedding(x, sin, cos):
-    return (x * cos) + (rotate_half_hidden_dimensions(x) * sin)
+    return (x * cos) + (rotate_half(x) * sin)
 
 
-def rotate_half_hidden_dimensions(x):
-    first_half, second_half = keras.ops.split(x, 2, axis=-1)
-    return keras.ops.concatenate([-second_half, first_half], axis=-1)
-
-
-@keras.saving.register_keras_serializable(package="paz.dinov3")
-class SelfAttention(keras.Layer):
-    """Keras implementation of DINOv3's SelfAttention layer."""
-
-    def __init__(
-        self,
-        dim: int,
-        num_heads: int = 8,
-        qkv_bias: bool = False,
-        proj_bias: bool = True,
-        attn_drop: float = 0.0,
-        proj_drop: float = 0.0,
-        **kwargs,
-    ) -> None:
-        super().__init__(**kwargs)
-        self.dim = dim
-        self.num_heads = num_heads
-        self.attn_drop = attn_drop
-        self.qkv_bias = qkv_bias
-        self.proj_bias = proj_bias
-        self.proj_drop = proj_drop
-        if self.dim % self.num_heads != 0:
-            raise ValueError(
-                f"dim ({dim}) must be divisible by num_heads ({num_heads})."
-            )
-        self.head_dim = dim // num_heads
-        self.scale = self.head_dim**-0.5
-        self.qkv = Dense(dim * 3, use_bias=qkv_bias, name="qkv")
-        self.attn_drop_layer = Dropout(attn_drop)
-        self.proj = Dense(dim, use_bias=proj_bias, name="proj")
-        self.proj_drop_layer = Dropout(proj_drop)
-
-    def apply_rope(self, queries, keys, rope):
-        return apply_rope_to_queries_and_keys(queries, keys, rope)
-
-    def compute_attention(self, qkv, rope=None, training=None):
-        return compute_multihead_self_attention(
-            qkv, self.num_heads, self.head_dim, self.dim,
-            self.scale, self.attn_drop_layer, rope, training
-        )
-
-    def forward_tensor(self, x, rope=None, training=None):
-        qkv = self.qkv(x)
-        attention_output = self.compute_attention(qkv=qkv, rope=rope, training=training)
-        return apply_projection_with_dropout(
-            attention_output, self.proj, self.proj_drop_layer, training
-        )
-
-    def forward_list(self, x_list, rope_list=None, training=None):
-        x_flat, shapes, num_tokens = cat_keep_shapes(x_list)
-        qkv_flat = self.qkv(x_flat)
-        qkv_list = uncat_with_shapes(qkv_flat, shapes, num_tokens)
-
-        if rope_list is None:
-            rope_list = [None] * len(qkv_list)
-
-        attention_outputs = [
-            self.compute_attention(qkv, rope=rope, training=training)
-            for qkv, rope in zip(qkv_list, rope_list)
-        ]
-
-        x_flat_out, shapes_out, num_tokens_out = cat_keep_shapes(attention_outputs)
-        output_with_dropout = apply_projection_with_dropout(
-            x_flat_out, self.proj, self.proj_drop_layer, training
-        )
-
-        return uncat_with_shapes(output_with_dropout, shapes_out, num_tokens_out)
-
-    def call(self, x, rope=None, training=None):
-        if isinstance(x, list):
-            return self.forward_list(x, rope_list=rope, training=training)
-        else:
-            return self.forward_tensor(x, rope=rope, training=training)
-
-    def get_config(self):
-        config = super().get_config()
-        config.update({
-            "dim": self.dim,
-            "num_heads": self.num_heads,
-            "qkv_bias": self.qkv_bias,
-            "proj_bias": self.proj_bias,
-            "attn_drop": self.attn_drop,
-            "proj_drop": self.proj_drop,
-        })
-        return config
-
-
-@keras.saving.register_keras_serializable(package="paz.dinov3")
-class CausalSelfAttention(keras.Layer):
-    """Keras implementation of DINOv3's CausalSelfAttention layer."""
-
-    def __init__(
-        self,
-        dim: int,
-        num_heads: int = 8,
-        qkv_bias: bool = False,
-        proj_bias: bool = True,
-        attn_drop: float = 0.0,
-        proj_drop: float = 0.0,
-        **kwargs,
-    ) -> None:
-        super().__init__(**kwargs)
-        self.dim = dim
-        self.num_heads = num_heads
-        self.attn_drop = attn_drop
-        self.qkv_bias = qkv_bias
-        self.proj_bias = proj_bias
-        self.proj_drop = proj_drop
-        if dim % num_heads != 0:
-            raise ValueError(
-                f"dim ({dim}) must be divisible by num_heads ({num_heads})."
-            )
-        self.head_dim = dim // num_heads
-        self.scale = self.head_dim**-0.5
-        self.qkv = Dense(dim * 3, use_bias=qkv_bias, name="qkv")
-        self.attn_drop_layer = Dropout(attn_drop)
-        self.proj = Dense(dim, use_bias=proj_bias, name="proj")
-        self.proj_drop_layer = Dropout(proj_drop)
-
-    def call(self, x, is_causal=True, training=None):
-        qkv = self.qkv(x)
-        attention_output = compute_causal_multihead_self_attention(
-            qkv, self.num_heads, self.head_dim, self.dim,
-            self.scale, self.attn_drop_layer, is_causal, training
-        )
-        return apply_projection_with_dropout(
-            attention_output, self.proj, self.proj_drop_layer, training
-        )
-
-    def get_config(self):
-        config = super().get_config()
-        config.update({
-            "dim": self.dim,
-            "num_heads": self.num_heads,
-            "qkv_bias": self.qkv_bias,
-            "proj_bias": self.proj_bias,
-            "attn_drop": self.attn_drop,
-            "proj_drop": self.proj_drop,
-        })
-        return config
+def apply_dropout(x, rate, name):
+    if rate > 0.0:
+        x = Dropout(rate, name=name)(x)
+    return x

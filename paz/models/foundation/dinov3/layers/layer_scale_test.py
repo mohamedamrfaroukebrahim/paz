@@ -9,7 +9,8 @@ from paz.models.foundation.dinov3.layers.torch_layers_for_testing import PT_Laye
 
 def port_weights(torch_model, keras_model):
     """Copies the gamma weight from the PyTorch model to the Keras model."""
-    keras_model.gamma.assign(torch_model.gamma.detach().cpu().numpy())
+    gamma = torch_model.gamma.detach().cpu().numpy()
+    keras_model.kernel.assign(gamma)
 
 
 @pytest.fixture(scope="module")
@@ -86,16 +87,20 @@ def test_3d_input_broadcasting(params):
 
 
 def test_keras_trainability(params):
-    """Verifies that the gamma variable is the only trainable weight."""
+    """Verifies that the gamma variable is the only trainable weight.
+
+    The gamma vector is held as the kernel of an EinsumDense layer.
+    """
     keras_ls = LayerScale(params["DIM"])
     _ = keras_ls(np.zeros((1, params["DIM"])))
 
     assert (
         len(keras_ls.trainable_weights) == 1
     ), f"Expected 1 trainable weight, found {len(keras_ls.trainable_weights)}"
-    assert keras_ls.trainable_weights[0].name.startswith(
-        "gamma"
-    ), f"Trainable weight name should be 'gamma', but got '{keras_ls.trainable_weights[0].name}'"
+    gamma_name = keras_ls.trainable_weights[0].name
+    assert gamma_name.startswith(
+        "kernel"
+    ), f"Trainable gamma should be the 'kernel', but got '{gamma_name}'"
 
 
 DINO_REPO_PATH = ""  # Not needed

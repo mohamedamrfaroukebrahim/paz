@@ -1,5 +1,5 @@
-from keras.layers import Conv2D, Identity
-import keras
+from keras import Input, Model
+from keras.layers import Conv2D, Reshape
 
 
 def make_2tuple(x):
@@ -10,61 +10,34 @@ def make_2tuple(x):
     return (x, x)
 
 
-@keras.saving.register_keras_serializable(package="paz.dinov3")
-class PatchEmbed(keras.layers.Layer):
-    def __init__(
-        self,
-        img_size=224,
-        patch_size=16,
-        in_channels=3,
-        embed_dim=768,
-        norm_layer=None,
-        flatten_embedding=True,
-        use_bias=True,
-        **kwargs,
-    ):
-        kwargs.pop("in_chans", None)
-        super().__init__(**kwargs)
-        self.img_size = make_2tuple(img_size)
-        self.patch_size = make_2tuple(patch_size)
-        self.in_channels = in_channels
-        self.embed_dim = embed_dim
-        self.norm_layer = norm_layer
-        self.flatten_embedding = flatten_embedding
-        self.use_bias = use_bias
-        self.grid_size = (
-            self.img_size[0] // self.patch_size[0],
-            self.img_size[1] // self.patch_size[1],
-        )
-        self.num_patches = self.grid_size[0] * self.grid_size[1]
+def PatchEmbed(img_size=224, patch_size=16, in_channels=3, embed_dim=768,
+               norm_layer=None, flatten_embedding=True, use_bias=True,
+               name="patch_embed"):
+    """Image to patch tokens, channels-last ``(B, H, W, C) -> (B, N, D)``.
 
-        self.projection = Conv2D(
-            filters=self.embed_dim,
-            kernel_size=self.patch_size,
-            strides=self.patch_size,
-            padding="valid",
-            use_bias=use_bias,
-            name="projection",
-        )
-        self.norm = norm_layer(name="norm") if norm_layer else Identity()
+    ``norm_layer`` is a callable taking ``name=`` that returns a layer.
+    """
+    image_shape = make_2tuple(img_size) + (in_channels,)
+    images = Input(image_shape, name=f"{name}_images")
+    args = (images, make_2tuple(patch_size), embed_dim, use_bias, name)
+    patches = apply_patch_embed(*args)
+    height, width = patches.shape[1], patches.shape[2]
+    tokens = flatten_patches(patches, embed_dim, name)
+    if norm_layer is not None:
+        tokens = norm_layer(name=f"{name}_norm")(tokens)
+    if not flatten_embedding:
+        shape = (height, width, embed_dim)
+        tokens = Reshape(shape, name=f"{name}_unflatten")(tokens)
+    return Model(images, tokens, name=name)
 
-    def call(self, x):
-        x = self.projection(x)
-        B, H_new, W_new, C_new = keras.ops.shape(x)
-        x = keras.ops.reshape(x, (B, H_new * W_new, C_new))
-        x = self.norm(x)
-        if not self.flatten_embedding:
-            x = keras.ops.reshape(x, (B, H_new, W_new, C_new))
-        return x
 
-    def get_config(self):
-        config = super().get_config()
-        config.update({
-            "img_size": self.img_size,
-            "patch_size": self.patch_size,
-            "in_channels": self.in_channels,
-            "embed_dim": self.embed_dim,
-            "flatten_embedding": self.flatten_embedding,
-            "use_bias": self.use_bias,
-        })
-        return config
+def apply_patch_embed(images, patch_size, embed_dim, use_bias, name):
+    kwargs = dict(strides=patch_size, padding="valid", use_bias=use_bias)
+    projection = Conv2D(embed_dim, patch_size, name=f"{name}_proj", **kwargs)
+    return projection(images)
+
+
+def flatten_patches(patches, embed_dim, name):
+    num_patches = patches.shape[1] * patches.shape[2]
+    shape = (num_patches, embed_dim)
+    return Reshape(shape, name=f"{name}_flatten")(patches)

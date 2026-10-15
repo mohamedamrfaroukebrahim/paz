@@ -8,7 +8,7 @@ from paz.models.foundation.dinov3.layers.rope_position_encoding import (
     RopePositionEmbedding,
 )
 
-from .ffn_layers import Mlp, SwiGLUFFN, ListForwardMixin
+from .ffn_layers import Mlp, SwiGLUFFN
 
 from .block import CausalSelfAttentionBlock, SelfAttentionBlock
 from .rms_norm import RMSNorm

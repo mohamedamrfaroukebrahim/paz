@@ -106,7 +106,7 @@ def create_dummy_image(img_size=224):
 
 def extract_features(model, image):
     print(f"\nExtracting features from image with shape: {image.shape}")
-    features = model(image, training=False)
+    features, _ = model(image, training=False)
     print(f"Features shape: {features.shape}")
     print(f"Features dtype: {features.dtype}")
     print(f"Features min: {np.min(features):.4f}")

@@ -85,6 +85,15 @@ def transfer_weights_pt_to_pt_causal(pt_ref_block, pt_causal_block):
             pt_causal_block.ls2.gamma.data = pt_ref_block.ls2.gamma.detach().clone()
 
 
+def get_keras_layer(keras_block, keras_attr_str):
+    """Resolves ``"attn.qkv"`` as ``block_attn`` then ``block_attn_qkv``."""
+    keras_layer, name = keras_block, keras_block.name
+    for part in keras_attr_str.split("."):
+        name = f"{name}_{part}"
+        keras_layer = keras_layer.get_layer(name)
+    return keras_layer
+
+
 def transfer_weights_generic(keras_block, pt_block, layer_name_map):
     """
     A generic function to transfer weights from a PyTorch block to a Keras block,
@@ -95,9 +104,7 @@ def transfer_weights_generic(keras_block, pt_block, layer_name_map):
         for part in pt_attr_str.split("."):
             pt_layer = getattr(pt_layer, part)
 
-        keras_layer = keras_block
-        for part in keras_attr_str.split("."):
-            keras_layer = getattr(keras_layer, part)
+        keras_layer = get_keras_layer(keras_block, keras_attr_str)
 
         weights_to_set = []
         if hasattr(pt_layer, "weight"):
@@ -573,7 +580,8 @@ def test_gradients_consistency(dim, num_heads, qkv_bias):
 
     keras_grads_w, keras_grad_input = grad_fn(initial_weights_np, jax_input)
 
-    qkv_kernel_path = keras_model.attention.qkv.kernel.path
+    qkv_layer = get_keras_layer(keras_model, "attention.qkv")
+    qkv_kernel_path = qkv_layer.kernel.path
     qkv_weight_index = -1
     for i, weight_var in enumerate(initial_weights_vars):
         if weight_var.path == qkv_kernel_path:

@@ -12,17 +12,19 @@ from paz.models.foundation.dinov3.layers.torch_layers_for_testing import PT_Patc
 def port_weights(torch_model, keras_model):
     """Port weights from PyTorch PatchEmbed to Keras PatchEmbed."""
     # Port convolution weights (OIHW -> HWIO)
+    projection = keras_model.get_layer(f"{keras_model.name}_proj")
     torch_kernel = torch_model.proj.weight.detach().cpu().numpy()
-    keras_model.projection.kernel.assign(np.transpose(torch_kernel, (2, 3, 1, 0)))
+    projection.kernel.assign(np.transpose(torch_kernel, (2, 3, 1, 0)))
 
     # Port convolution bias if it exists
     if torch_model.proj.bias is not None:
-        keras_model.projection.bias.assign(torch_model.proj.bias.detach().cpu().numpy())
+        projection.bias.assign(torch_model.proj.bias.detach().cpu().numpy())
 
     # Port LayerNorm weights if it's not an Identity layer
     if isinstance(torch_model.norm, nn.LayerNorm):
-        keras_model.norm.gamma.assign(torch_model.norm.weight.detach().cpu().numpy())
-        keras_model.norm.beta.assign(torch_model.norm.bias.detach().cpu().numpy())
+        norm = keras_model.get_layer(f"{keras_model.name}_norm")
+        norm.gamma.assign(torch_model.norm.weight.detach().cpu().numpy())
+        norm.beta.assign(torch_model.norm.bias.detach().cpu().numpy())
 
 
 @pytest.fixture(scope="module")

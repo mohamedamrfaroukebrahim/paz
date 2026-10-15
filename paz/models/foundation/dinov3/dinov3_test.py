@@ -153,6 +153,24 @@ def get_keras_model(keras_constructor, keras_weight_path_key, model_kwargs):
     return keras_model
 
 
+def count_blocks(keras_model):
+    names = [layer.name for layer in keras_model.layers]
+    return sum(name.endswith("_attn") for name in names)
+
+
+def get_block(keras_model, index):
+    def get_block_layer(part):
+        return keras_model.get_layer(f"blocks_{index}_{part}")
+    return get_block_layer
+
+
+def build_probe(keras_model):
+    """Exposes the prepared tokens and the RoPE (sin, cos) tables."""
+    names = ("tokens", "rope_embed_sin", "rope_embed_cos")
+    outputs = [keras_model.get_layer(name).output for name in names]
+    return keras.Model(keras_model.inputs, outputs)
+
+
 @pytest.mark.parametrize(
     "pt_constructor, keras_constructor, weight_key, model_kwargs", VIT_MODEL_CONFIGS
 )
@@ -172,7 +190,7 @@ def test_final_VIT_output_equivalence(
 
     # --- Get Model Outputs ---
     print("Performing inference...")
-    keras_output = keras_model(keras_input, training=False)
+    keras_output, _ = keras_model(keras_input, training=False)
     with torch.no_grad():
         pt_output = pt_model(pt_input, is_training=False)
 
@@ -296,7 +314,8 @@ def test_deep_dive_VIT_block_equivalence(
             print(f"       Correcting Keras tensor to continue analysis...")
             return keras.ops.convert_to_tensor(torch_np)
 
-    for i in range(len(keras_model.blocks)):
+    probe = build_probe(keras_model)
+    for i in range(count_blocks(keras_model)):
         print(f"\n--- Analyzing Block {i} ---")
 
         # 1. Create a new, unique input for this block to isolate errors
@@ -308,33 +327,30 @@ def test_deep_dive_VIT_block_equivalence(
         pt_input = torch.from_numpy(image_np.transpose(0, 3, 1, 2))
 
         # 2. Get initial tokens
-        keras_tokens, (H_k, W_k) = keras_model.prepare_tokens_with_masks(keras_input)
+        # 3. ... together with the RoPE embeddings
+        keras_tokens, *rope_keras = probe(keras_input)
         pt_tokens, (H_pt, W_pt) = pt_model.prepare_tokens_with_masks(pt_input)
-
-        # 3. Get RoPE embeddings
-        rope_keras = keras_model.rope_embed(H=H_k, W=W_k, training=False)
         rope_torch = pt_model.rope_embed(H=H_pt, W=W_pt)
 
         # 4. Get the corresponding block from each model
-        keras_block = keras_model.blocks[i]
+        keras_block = get_block(keras_model, i)
         pt_block = pt_model.blocks[i]
 
         # --- Deep Dive into the Block ---
-        keras_norm1_out = keras_block.norm1(keras_tokens)
+        keras_norm1_out = keras_block("norm1")(keras_tokens)
         pt_norm1_out = pt_block.norm1(pt_tokens)
         keras_norm1_out = _compare_and_correct(
             keras_norm1_out, pt_norm1_out, "Norm1", i
         )
 
-        keras_attn_out = keras_block.attn(
-            keras_norm1_out, rope=rope_keras, training=False
-        )
+        attn_inputs = [keras_norm1_out, *rope_keras]
+        keras_attn_out = keras_block("attn")(attn_inputs, training=False)
         pt_attn_out = pt_block.attn(pt_norm1_out, rope=rope_torch)
         keras_attn_out = _compare_and_correct(
             keras_attn_out, pt_attn_out, "Attention", i
         )
 
-        keras_ls1_out = keras_block.ls1(keras_attn_out, training=False)
+        keras_ls1_out = keras_block("ls1")(keras_attn_out)
         pt_ls1_out = pt_block.ls1(pt_attn_out)
         keras_ls1_out = _compare_and_correct(
             keras_ls1_out, pt_ls1_out, "LayerScale1", i
@@ -346,17 +362,17 @@ def test_deep_dive_VIT_block_equivalence(
             keras_res1_out, pt_res1_out, "Residual1", i
         )
 
-        keras_norm2_out = keras_block.norm2(keras_res1_out)
+        keras_norm2_out = keras_block("norm2")(keras_res1_out)
         pt_norm2_out = pt_block.norm2(pt_res1_out)
         keras_norm2_out = _compare_and_correct(
             keras_norm2_out, pt_norm2_out, "Norm2", i
         )
 
-        keras_mlp_out = keras_block.mlp(keras_norm2_out, training=False)
+        keras_mlp_out = keras_block("mlp")(keras_norm2_out, training=False)
         pt_mlp_out = pt_block.mlp(pt_norm2_out)
         keras_mlp_out = _compare_and_correct(keras_mlp_out, pt_mlp_out, "MLP", i)
 
-        keras_ls2_out = keras_block.ls2(keras_mlp_out, training=False)
+        keras_ls2_out = keras_block("ls2")(keras_mlp_out)
         pt_ls2_out = pt_block.ls2(pt_mlp_out)
         keras_ls2_out = _compare_and_correct(
             keras_ls2_out, pt_ls2_out, "LayerScale2", i

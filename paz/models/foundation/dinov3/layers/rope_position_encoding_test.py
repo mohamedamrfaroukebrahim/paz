@@ -156,6 +156,7 @@ def test_dinov3_real_pretrained_weights(params):
     torch_pretrained_rope = dinov3_model.rope_embed
     dino_embed_dim = dinov3_model.embed_dim
     dino_num_heads = dinov3_model.blocks[0].attn.num_heads
+    torch_periods_np = torch_pretrained_rope.periods.cpu().numpy()
     keras_model = RopePositionEmbedding(
         embed_dim=dino_embed_dim,
         num_heads=dino_num_heads,
@@ -167,10 +168,8 @@ def test_dinov3_real_pretrained_weights(params):
         jitter_coords=torch_pretrained_rope.jitter_coords,
         rescale_coords=torch_pretrained_rope.rescale_coords,
         dtype="float32",
+        periods=torch_periods_np,
     )
-    keras_model.build(input_shape=None)
-    torch_periods_np = torch_pretrained_rope.periods.cpu().numpy()
-    keras_model.set_weights([torch_periods_np])
     run_and_compare(
         keras_model,
         torch_pretrained_rope,

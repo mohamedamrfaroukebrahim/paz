@@ -39,6 +39,7 @@ def create_mlp_pair(
 
     # 2. Create and build Keras model
     keras_model = Mlp(
+        in_features=in_dim,
         hidden_features=hidden_features,
         out_features=out_features,
         drop=drop,
@@ -52,12 +53,12 @@ def create_mlp_pair(
     fc1_weights = [pt_weights["fc1.weight"].T.numpy()]
     if bias:
         fc1_weights.append(pt_weights["fc1.bias"].numpy())
-    keras_model.fc1.set_weights(fc1_weights)
+    keras_model.get_layer("mlp_fc1").set_weights(fc1_weights)
 
     fc2_weights = [pt_weights["fc2.weight"].T.numpy()]
     if bias:
         fc2_weights.append(pt_weights["fc2.bias"].numpy())
-    keras_model.fc2.set_weights(fc2_weights)
+    keras_model.get_layer("mlp_fc2").set_weights(fc2_weights)
 
     return pt_model, keras_model
 
@@ -78,6 +79,7 @@ def create_swiglu_pair(
 
     # 2. Create and build Keras model
     keras_model = SwiGLUFFN(
+        in_features=in_dim,
         hidden_features=hidden_features,
         out_features=out_features,
         bias=bias,
@@ -89,7 +91,7 @@ def create_swiglu_pair(
     pt_weights = pt_model.state_dict()
     for i in range(1, 4):
         layer_name = f"w{i}"
-        keras_layer = getattr(keras_model, layer_name)
+        keras_layer = keras_model.get_layer(f"mlp_{layer_name}")
         pt_layer_weights = [pt_weights[f"{layer_name}.weight"].T.numpy()]
         if bias:
             pt_layer_weights.append(pt_weights[f"{layer_name}.bias"].numpy())
@@ -198,6 +200,7 @@ def test_mlp_with_pretrained_dinov3_weights(params):
 
     # Create the Keras model with a matching configuration
     keras_model = Mlp(
+        in_features=dinov3_embed_dim,
         hidden_features=dinov3_hidden_dim,
         out_features=dinov3_embed_dim,
         approximate_gelu=False,  # Use precise GELU to match PyTorch
@@ -206,13 +209,13 @@ def test_mlp_with_pretrained_dinov3_weights(params):
     keras_model(jnp.ones((1, 1, dinov3_embed_dim)))
 
     # Transfer weights from the PyTorch layer to the Keras layer
-    keras_model.fc1.set_weights(
+    keras_model.get_layer("mlp_fc1").set_weights(
         [
             torch_model.fc1.weight.T.detach().numpy(),
             torch_model.fc1.bias.detach().numpy(),
         ]
     )
-    keras_model.fc2.set_weights(
+    keras_model.get_layer("mlp_fc2").set_weights(
         [
             torch_model.fc2.weight.T.detach().numpy(),
             torch_model.fc2.bias.detach().numpy(),
@@ -299,16 +302,16 @@ def test_swiglu_with_pretrained_dinov3_weights(params):
     torch_model.eval()
 
     keras_model = SwiGLUFFN(
-        hidden_features=dinov3_hidden_dim, out_features=dinov3_embed_dim
+        dinov3_embed_dim, dinov3_hidden_dim, out_features=dinov3_embed_dim
     )
     keras_model(jnp.ones((1, 1, dinov3_embed_dim)))
-    keras_model.w1.set_weights(
+    keras_model.get_layer("mlp_w1").set_weights(
         [mock_weights["w1.weight"].T.numpy(), mock_weights["w1.bias"].numpy()]
     )
-    keras_model.w2.set_weights(
+    keras_model.get_layer("mlp_w2").set_weights(
         [mock_weights["w2.weight"].T.numpy(), mock_weights["w2.bias"].numpy()]
     )
-    keras_model.w3.set_weights(
+    keras_model.get_layer("mlp_w3").set_weights(
         [mock_weights["w3.weight"].T.numpy(), mock_weights["w3.bias"].numpy()]
     )
 

@@ -1,34 +1,10 @@
 import keras
-import keras.ops as ops
+from keras.layers import EinsumDense
 
 
-@keras.saving.register_keras_serializable(package="paz.dinov3")
-class LayerScale(keras.layers.Layer):
-    def __init__(
-        self, dimension, init_values=1e-5, inplace=False, data_type=None, **kwargs
-    ):
-        super().__init__(dtype=data_type, **kwargs)
-        self.dimension = dimension
-        self.init_values = init_values
-        self.inplace = inplace
-
-        self.gamma = self.add_weight(
-            name="gamma",
-            shape=(self.dimension,),
-            initializer=keras.initializers.Constant(self.init_values),
-            trainable=True,
-        )
-
-    def call(self, x):
-        return ops.multiply(x, self.gamma)
-
-    def get_config(self):
-        config = super().get_config()
-        config.update(
-            {
-                "dimension": self.dimension,
-                "init_values": self.init_values,
-                "inplace": self.inplace,
-            }
-        )
-        return config
+def LayerScale(dimension, init_values=1e-5, name=None):
+    """Per-channel learnable scale, held as the kernel of an EinsumDense."""
+    initializer = keras.initializers.Constant(init_values)
+    kwargs = dict(output_shape=(dimension,), bias_axes=None, name=name)
+    kwargs["kernel_initializer"] = initializer
+    return EinsumDense("...d,d->...d", **kwargs)
