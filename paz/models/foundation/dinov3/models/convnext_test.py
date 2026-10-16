@@ -8,34 +8,36 @@ import convnext
 import torch_convnext_for_testing
 
 TOLERANCE = 1e-5
-DINO_WEIGHTS_DIR = r"D:\DFKI_SeaMe_project\Tasks\Task2_porting_paz_model_to_keras3\paz/"
+TASK_DIR = r"D:\DFKI_SeaMe_project\Tasks\Task2_porting_paz_model_to_keras3"
+DINO_WEIGHTS_DIR = TASK_DIR + r"\paz/"
 
 MODEL_PARAMS = [
     (
         "tiny",
         torch_convnext_for_testing.PT_get_convnext_arch("convnext_tiny"),
         convnext.get_convnext_arch("convnext_tiny"),
-        r"D:\DFKI_SeaMe_project\Tasks\Task2_porting_paz_model_to_keras3\dinov3_convnext_tiny_pretrain_lvd1689m-21b726bb.pth",
+        TASK_DIR + r"\dinov3_convnext_tiny_pretrain_lvd1689m-21b726bb.pth",
     ),
     (
         "small",
         torch_convnext_for_testing.PT_get_convnext_arch("convnext_small"),
         convnext.get_convnext_arch("convnext_small"),
-        r"D:\DFKI_SeaMe_project\Tasks\Task2_porting_paz_model_to_keras3\dinov3_convnext_small_pretrain_lvd1689m-296db49d.pth",
+        TASK_DIR + r"\dinov3_convnext_small_pretrain_lvd1689m-296db49d.pth",
     ),
     (
         "base",
         torch_convnext_for_testing.PT_get_convnext_arch("convnext_base"),
         convnext.get_convnext_arch("convnext_base"),
-        r"D:\DFKI_SeaMe_project\Tasks\Task2_porting_paz_model_to_keras3\dinov3_convnext_base_pretrain_lvd1689m-801f2ba9.pth",
+        TASK_DIR + r"\dinov3_convnext_base_pretrain_lvd1689m-801f2ba9.pth",
     ),
     (
         "large",
         torch_convnext_for_testing.PT_get_convnext_arch("convnext_large"),
         convnext.get_convnext_arch("convnext_large"),
-        r"D:\DFKI_SeaMe_project\Tasks\Task2_porting_paz_model_to_keras3\dinov3_convnext_large_pretrain_lvd1689m-61fa432d.pth",
+        TASK_DIR + r"\dinov3_convnext_large_pretrain_lvd1689m-61fa432d.pth",
     ),
 ]
+PARAM_IDS = [p[0] for p in MODEL_PARAMS]
 
 
 def port_weights(pt_model, keras_model):
@@ -53,7 +55,8 @@ def port_weights(pt_model, keras_model):
     if len(pt_params) != len(trainable_keras_weights):
         print(f"PyTorch param count: {len(pt_params)}")
         print(f"Keras trainable weight count: {len(trainable_keras_weights)}")
-        raise ValueError("Model parameter counts do not match! Cannot port weights.")
+        message = "Model parameter counts do not match! Cannot port weights."
+        raise ValueError(message)
 
     pt_param_idx = 0
     for kw in keras_weights:
@@ -73,11 +76,10 @@ def port_weights(pt_model, keras_model):
                 pt_p_np = pt_p_np.transpose(1, 0)
 
         if kw.shape != pt_p_np.shape:
-            raise ValueError(
-                f"Shape mismatch for weight '{kw.name}':\n"
-                f"Keras shape: {kw.shape}\n"
-                f"PyTorch shape (after transpose): {pt_p_np.shape}"
-            )
+            message = f"Shape mismatch for weight '{kw.name}':\n"
+            message = message + f"Keras shape: {kw.shape}\n"
+            transposed = f"PyTorch shape (after transpose): {pt_p_np.shape}"
+            raise ValueError(message + transposed)
 
         kw.assign(pt_p_np)
         pt_param_idx += 1
@@ -112,9 +114,8 @@ def assert_all_close(test_name, pt_out, keras_out, tolerance=TOLERANCE):
     try:
         mean_abs_diff = np.mean(np.abs(pt_out_np - keras_out_np))
         if mean_abs_diff > tolerance:
-            raise AssertionError(
-                f"Mean absolute difference {mean_abs_diff} exceeds tolerance {tolerance}"
-            )
+            message = f"Mean absolute difference {mean_abs_diff} exceeds "
+            raise AssertionError(message + f"tolerance {tolerance}")
         # npt.assert_allclose(pt_out_np, keras_out_np, rtol=1e-4)
 
         print(f"✅ [PASS] {test_name}")
@@ -200,16 +201,15 @@ def transfer_weights_convnext(pt_model, keras_model):
 
     except KeyError as e:
         print(f"❌ [FAIL] Weight transfer failed. Missing key: {e}")
-        print(
-            "This often means the Keras and PyTorch model structures are out of sync."
-        )
+        message = "This often means the Keras and PyTorch model structures "
+        print(message + "are out of sync.")
         raise e
     except Exception as e:
         print(f"❌ [FAIL] Weight transfer failed with an unexpected error: {e}")
         raise e
 
 
-@pytest.fixture(scope="module", params=MODEL_PARAMS, ids=[p[0] for p in MODEL_PARAMS])
+@pytest.fixture(scope="module", params=MODEL_PARAMS, ids=PARAM_IDS)
 def setup_models(request):
     """
     Module-scoped fixture to set up models, inputs, and port weights.
@@ -280,18 +280,13 @@ def test_final_output_equivalence(setup_models):
     arch_name = setup_models["arch_name"]
     print(f"\nRunning Test 1 (Final Output) for: {arch_name}")
 
-    pt_out_call = setup_models["pt_model"](
-        setup_models["torch_input"], is_training=False
-    )
+    pt_model = setup_models["pt_model"]
+    pt_out_call = pt_model(setup_models["torch_input"], is_training=False)
     keras_input = setup_models["keras_input"]
     keras_out_call, _ = setup_models["keras_model"](keras_input, training=False)
 
-    assert_all_close(
-        f"Final 'call' (inference) - {arch_name}",
-        pt_out_call,
-        keras_out_call,
-        tolerance=1e-4,
-    )
+    test_name = f"Final 'call' (inference) - {arch_name}"
+    assert_all_close(test_name, pt_out_call, keras_out_call, tolerance=1e-4)
 
 
 def test_deep_dive_block_equivalence(setup_models):
@@ -315,9 +310,10 @@ def test_deep_dive_block_equivalence(setup_models):
             return keras_tensor
         except AssertionError as e:
             any_failure = True
-            print(f"       Correcting Keras tensor to continue analysis...")
+            print("       Correcting Keras tensor to continue analysis...")
             return keras.ops.convert_to_tensor(torch_np)
 
+    check = _compare_and_correct
     np.random.seed(42)
     np_input = np.random.rand(2, 3, 224, 224).astype("float32")
     x_keras = keras.ops.convert_to_tensor(np_input)
@@ -332,9 +328,7 @@ def test_deep_dive_block_equivalence(setup_models):
         x_keras = apply_downsample(keras_model, i, x_keras)
         x_torch = pt_down_layer(x_torch)
 
-        x_keras = _compare_and_correct(
-            x_keras, x_torch, f"Stage {i} - Downsample Output"
-        )
+        x_keras = check(x_keras, x_torch, f"Stage {i} - Downsample Output")
 
         # --- 2. Blocks in Stage ---
         for j in range(count_stage_blocks(keras_model, i)):
@@ -349,9 +343,7 @@ def test_deep_dive_block_equivalence(setup_models):
             # 1. DwConv
             k_dwconv = keras_block("dwconv")(input_keras)
             pt_dwconv = pt_block.dwconv(input_torch)
-            k_dwconv = _compare_and_correct(
-                k_dwconv, pt_dwconv, f"{layer_prefix} - dwconv"
-            )
+            k_dwconv = check(k_dwconv, pt_dwconv, f"{layer_prefix} - dwconv")
 
             # 2. Permute
             k_perm1 = ops.transpose(k_dwconv, (0, 2, 3, 1))
@@ -360,28 +352,28 @@ def test_deep_dive_block_equivalence(setup_models):
             # 3. Norm
             k_norm = keras_block("norm")(k_perm1)
             pt_norm = pt_block.norm(pt_perm1)
-            k_norm = _compare_and_correct(k_norm, pt_norm, f"{layer_prefix} - norm")
+            k_norm = check(k_norm, pt_norm, f"{layer_prefix} - norm")
 
             # 4. PwConv1
             k_pw1 = keras_block("pwconv1")(k_norm)
             pt_pw1 = pt_block.pwconv1(pt_norm)
-            k_pw1 = _compare_and_correct(k_pw1, pt_pw1, f"{layer_prefix} - pwconv1")
+            k_pw1 = check(k_pw1, pt_pw1, f"{layer_prefix} - pwconv1")
 
             # 5. Act
             k_act = keras_block("act")(k_pw1)
             pt_act = pt_block.act(pt_pw1)
-            k_act = _compare_and_correct(k_act, pt_act, f"{layer_prefix} - act")
+            k_act = check(k_act, pt_act, f"{layer_prefix} - act")
 
             # 6. PwConv2
             k_pw2 = keras_block("pwconv2")(k_act)
             pt_pw2 = pt_block.pwconv2(pt_act)
-            k_pw2 = _compare_and_correct(k_pw2, pt_pw2, f"{layer_prefix} - pwconv2")
+            k_pw2 = check(k_pw2, pt_pw2, f"{layer_prefix} - pwconv2")
 
             # 7. Gamma (LayerScale)
             if has_layer(keras_model, f"stages_{i}_{j}_gamma"):
                 k_pw2 = keras_block("gamma")(k_pw2)
                 pt_pw2 = pt_block.gamma * pt_pw2
-                k_pw2 = _compare_and_correct(k_pw2, pt_pw2, f"{layer_prefix} - gamma")
+                k_pw2 = check(k_pw2, pt_pw2, f"{layer_prefix} - gamma")
 
             # 8. Permute Back
             k_perm2 = ops.transpose(k_pw2, (0, 3, 1, 2))
@@ -389,19 +381,15 @@ def test_deep_dive_block_equivalence(setup_models):
 
             # 9. DropPath (is Identity in eval mode)
             k_drop = apply_drop_path(keras_model, i, j, k_perm2)
-            pt_drop = pt_block.drop_path(pt_perm2)  # training=False by pt_model.eval()
-            k_drop = _compare_and_correct(
-                k_drop, pt_drop, f"{layer_prefix} - drop_path"
-            )
+            # training=False by pt_model.eval()
+            pt_drop = pt_block.drop_path(pt_perm2)
+            k_drop = check(k_drop, pt_drop, f"{layer_prefix} - drop_path")
 
             # 10. Residual
             x_keras = input_keras + k_drop
             x_torch = input_torch + pt_drop
-            x_keras = _compare_and_correct(
-                x_keras, x_torch, f"{layer_prefix} - residual_add"
-            )
+            x_keras = check(x_keras, x_torch, f"{layer_prefix} - residual_add")
 
     print(f"\n--- Deep-Dive Analysis Complete for: {arch_name} ---")
-    assert (
-        not any_failure
-    ), f"One or more internal layers for {arch_name} had an output mismatch. See logs for details."
+    message = f"One or more internal layers for {arch_name} had an output "
+    assert not any_failure, message + "mismatch. See logs for details."

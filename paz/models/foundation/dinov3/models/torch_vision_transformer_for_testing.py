@@ -65,7 +65,9 @@ class PT_DinoVisionTransformer(nn.Module):
         pos_embed_rope_base: float = 100.0,
         pos_embed_rope_min_period: float | None = None,
         pos_embed_rope_max_period: float | None = None,
-        pos_embed_rope_normalize_coords: Literal["min", "max", "separate"] = "separate",
+        pos_embed_rope_normalize_coords: Literal["min", "max", "separate"] = (
+            "separate"
+        ),
         pos_embed_rope_shift_coords: float | None = None,
         pos_embed_rope_jitter_coords: float | None = None,
         pos_embed_rope_rescale_coords: float | None = None,
@@ -95,78 +97,65 @@ class PT_DinoVisionTransformer(nn.Module):
 
         norm_layer_cls = norm_layer_dict[norm_layer]
 
-        self.num_features = self.embed_dim = (
-            embed_dim  # num_features for consistency with other models
-        )
+        # num_features for consistency with other models
+        self.num_features = self.embed_dim = embed_dim
         self.n_blocks = depth
         self.num_heads = num_heads
         self.patch_size = patch_size
 
-        self.patch_embed = PT_PatchEmbed(
-            img_size=img_size,
-            patch_size=patch_size,
-            in_chans=in_chans,
-            embed_dim=embed_dim,
-            flatten_embedding=False,
-        )
+        kwargs = dict(img_size=img_size, patch_size=patch_size)
+        kwargs.update(in_chans=in_chans, embed_dim=embed_dim)
+        self.patch_embed = PT_PatchEmbed(**kwargs, flatten_embedding=False)
 
-        self.cls_token = nn.Parameter(torch.empty(1, 1, embed_dim, device=device))
+        cls_token = torch.empty(1, 1, embed_dim, device=device)
+        self.cls_token = nn.Parameter(cls_token)
         self.n_storage_tokens = n_storage_tokens
         if self.n_storage_tokens > 0:
-            self.storage_tokens = nn.Parameter(
-                torch.empty(1, n_storage_tokens, embed_dim, device=device)
-            )
-        logger.info(f"using base={pos_embed_rope_base} for rope new")
-        logger.info(f"using min_period={pos_embed_rope_min_period} for rope new")
-        logger.info(f"using max_period={pos_embed_rope_max_period} for rope new")
-        logger.info(
-            f"using normalize_coords={pos_embed_rope_normalize_coords} for rope new"
-        )
-        logger.info(f"using shift_coords={pos_embed_rope_shift_coords} for rope new")
-        logger.info(
-            f"using rescale_coords={pos_embed_rope_rescale_coords} for rope new"
-        )
-        logger.info(f"using jitter_coords={pos_embed_rope_jitter_coords} for rope new")
-        logger.info(f"using dtype={pos_embed_rope_dtype} for rope new")
-        self.rope_embed = PT_RopePositionEmbedding(
-            embed_dim=embed_dim,
-            num_heads=num_heads,
-            base=pos_embed_rope_base,
-            min_period=pos_embed_rope_min_period,
-            max_period=pos_embed_rope_max_period,
-            normalize_coords=pos_embed_rope_normalize_coords,
-            shift_coords=pos_embed_rope_shift_coords,
-            jitter_coords=pos_embed_rope_jitter_coords,
-            rescale_coords=pos_embed_rope_rescale_coords,
-            dtype=dtype_dict[pos_embed_rope_dtype],
-            device=device,
-        )
+            shape = (1, n_storage_tokens, embed_dim)
+            storage_tokens = torch.empty(*shape, device=device)
+            self.storage_tokens = nn.Parameter(storage_tokens)
+        suffix = " for rope new"
+        logger.info(f"using base={pos_embed_rope_base}" + suffix)
+        logger.info(f"using min_period={pos_embed_rope_min_period}" + suffix)
+        logger.info(f"using max_period={pos_embed_rope_max_period}" + suffix)
+        message = f"using normalize_coords={pos_embed_rope_normalize_coords}"
+        logger.info(message + suffix)
+        message = f"using shift_coords={pos_embed_rope_shift_coords}"
+        logger.info(message + suffix)
+        message = f"using rescale_coords={pos_embed_rope_rescale_coords}"
+        logger.info(message + suffix)
+        message = f"using jitter_coords={pos_embed_rope_jitter_coords}"
+        logger.info(message + suffix)
+        logger.info(f"using dtype={pos_embed_rope_dtype}" + suffix)
+        kwargs = dict(embed_dim=embed_dim, num_heads=num_heads)
+        kwargs.update(base=pos_embed_rope_base)
+        kwargs.update(min_period=pos_embed_rope_min_period)
+        kwargs.update(max_period=pos_embed_rope_max_period)
+        kwargs.update(normalize_coords=pos_embed_rope_normalize_coords)
+        kwargs.update(shift_coords=pos_embed_rope_shift_coords)
+        kwargs.update(jitter_coords=pos_embed_rope_jitter_coords)
+        kwargs.update(rescale_coords=pos_embed_rope_rescale_coords)
+        kwargs.update(dtype=dtype_dict[pos_embed_rope_dtype], device=device)
+        self.rope_embed = PT_RopePositionEmbedding(**kwargs)
         logger.info(f"using {ffn_layer} layer as FFN")
         ffn_layer_cls = ffn_layer_dict[ffn_layer]
         ffn_ratio_sequence = [ffn_ratio] * depth
-        blocks_list = [
-            PT_SelfAttentionBlock(
-                dim=embed_dim,
-                num_heads=num_heads,
-                ffn_ratio=ffn_ratio_sequence[i],
-                qkv_bias=qkv_bias,
-                proj_bias=proj_bias,
-                ffn_bias=ffn_bias,
-                drop_path=drop_path_rate,
-                norm_layer=norm_layer_cls,
-                act_layer=nn.GELU,
-                ffn_layer=ffn_layer_cls,
-                init_values=layerscale_init,
-                mask_k_bias=mask_k_bias,
-                device=device,
-            )
-            for i in range(depth)
-        ]
+        blocks_list = []
+        for i in range(depth):
+            kwargs = dict(dim=embed_dim, num_heads=num_heads)
+            kwargs.update(ffn_ratio=ffn_ratio_sequence[i], qkv_bias=qkv_bias)
+            kwargs.update(proj_bias=proj_bias, ffn_bias=ffn_bias)
+            kwargs.update(drop_path=drop_path_rate, norm_layer=norm_layer_cls)
+            kwargs.update(act_layer=nn.GELU, ffn_layer=ffn_layer_cls)
+            kwargs.update(init_values=layerscale_init)
+            kwargs.update(mask_k_bias=mask_k_bias, device=device)
+            blocks_list.append(PT_SelfAttentionBlock(**kwargs))
 
         self.chunked_blocks = False
         self.blocks = nn.ModuleList(blocks_list)
 
-        # This norm is applied to everything, or when untying, to patch and mask tokens.
+        # This norm is applied to everything, or when untying, to patch and
+        # mask tokens.
         self.norm = norm_layer_cls(embed_dim)
 
         self.untie_cls_and_patch_norms = untie_cls_and_patch_norms
@@ -176,15 +165,18 @@ class PT_DinoVisionTransformer(nn.Module):
         else:
             self.cls_norm = None
 
-        self.untie_global_and_local_cls_norm = untie_global_and_local_cls_norm
+        untie_local = untie_global_and_local_cls_norm
+        self.untie_global_and_local_cls_norm = untie_local
         if untie_global_and_local_cls_norm:
-            # When untying, this norm is applied to local CLS tokens and registers.
+            # When untying, this norm is applied to local CLS tokens and
+            # registers.
             # This norm is never used during eval.
             self.local_cls_norm = norm_layer_cls(embed_dim)
         else:
             self.local_cls_norm = None
         self.head = nn.Identity()
-        self.mask_token = nn.Parameter(torch.empty(1, embed_dim, device=device))
+        mask_token = torch.empty(1, embed_dim, device=device)
+        self.mask_token = nn.Parameter(mask_token)
 
     def init_weights(self):
         self.rope_embed._init_weights()
@@ -202,31 +194,20 @@ class PT_DinoVisionTransformer(nn.Module):
         x = x.flatten(1, 2)
 
         if masks is not None:
-            x = torch.where(
-                masks.unsqueeze(-1), self.mask_token.to(x.dtype).unsqueeze(0), x
-            )
+            mask_token = self.mask_token.to(x.dtype).unsqueeze(0)
+            x = torch.where(masks.unsqueeze(-1), mask_token, x)
             cls_token = self.cls_token
         else:
             cls_token = self.cls_token + 0 * self.mask_token
         if self.n_storage_tokens > 0:
             storage_tokens = self.storage_tokens
         else:
-            storage_tokens = torch.empty(
-                1,
-                0,
-                cls_token.shape[-1],
-                dtype=cls_token.dtype,
-                device=cls_token.device,
-            )
+            kwargs = dict(dtype=cls_token.dtype, device=cls_token.device)
+            shape = (1, 0, cls_token.shape[-1])
+            storage_tokens = torch.empty(*shape, **kwargs)
 
-        x = torch.cat(
-            [
-                cls_token.expand(B, -1, -1),
-                storage_tokens.expand(B, -1, -1),
-                x,
-            ],
-            dim=1,
-        )
+        cls_tokens = cls_token.expand(B, -1, -1)
+        x = torch.cat([cls_tokens, storage_tokens.expand(B, -1, -1), x], dim=1)
 
         return x, (H, W)
 
@@ -247,32 +228,33 @@ class PT_DinoVisionTransformer(nn.Module):
             x = blk(x, rope_sincos)
         all_x = x
         output = []
+        num_prefix_tokens = self.n_storage_tokens + 1
+        untie_local = self.untie_global_and_local_cls_norm
+        untie_any = self.untie_cls_and_patch_norms or untie_local
         for idx, (x, masks) in enumerate(zip(all_x, masks_list)):
-            if self.untie_cls_and_patch_norms or self.untie_global_and_local_cls_norm:
-                if self.untie_global_and_local_cls_norm and self.training and idx == 1:
+            if untie_any:
+                prefix_tokens = x[:, :num_prefix_tokens]
+                if untie_local and self.training and idx == 1:
                     # Assume second entry of list corresponds to local crops.
                     # We only ever apply this during training.
-                    x_norm_cls_reg = self.local_cls_norm(
-                        x[:, : self.n_storage_tokens + 1]
-                    )
+                    x_norm_cls_reg = self.local_cls_norm(prefix_tokens)
                 elif self.untie_cls_and_patch_norms:
-                    x_norm_cls_reg = self.cls_norm(x[:, : self.n_storage_tokens + 1])
+                    x_norm_cls_reg = self.cls_norm(prefix_tokens)
                 else:
-                    x_norm_cls_reg = self.norm(x[:, : self.n_storage_tokens + 1])
-                x_norm_patch = self.norm(x[:, self.n_storage_tokens + 1 :])
+                    x_norm_cls_reg = self.norm(prefix_tokens)
+                x_norm_patch = self.norm(x[:, num_prefix_tokens:])
             else:
                 x_norm = self.norm(x)
-                x_norm_cls_reg = x_norm[:, : self.n_storage_tokens + 1]
-                x_norm_patch = x_norm[:, self.n_storage_tokens + 1 :]
-            output.append(
-                {
-                    "x_norm_clstoken": x_norm_cls_reg[:, 0],
-                    "x_storage_tokens": x_norm_cls_reg[:, 1:],
-                    "x_norm_patchtokens": x_norm_patch,
-                    "x_prenorm": x,
-                    "masks": masks,
-                }
-            )
+                x_norm_cls_reg = x_norm[:, :num_prefix_tokens]
+                x_norm_patch = x_norm[:, num_prefix_tokens:]
+            features = {
+                "x_norm_clstoken": x_norm_cls_reg[:, 0],
+                "x_storage_tokens": x_norm_cls_reg[:, 1:],
+                "x_norm_patchtokens": x_norm_patch,
+                "x_prenorm": x,
+                "masks": masks,
+            }
+            output.append(features)
         return output
 
     def forward_features(
@@ -289,9 +271,10 @@ class PT_DinoVisionTransformer(nn.Module):
         x, (H, W) = self.prepare_tokens_with_masks(x)
         # If n is an int, take the n last blocks. If it's a list, take them
         output, total_block_len = [], len(self.blocks)
-        blocks_to_take = (
-            range(total_block_len - n, total_block_len) if isinstance(n, int) else n
-        )
+        if isinstance(n, int):
+            blocks_to_take = range(total_block_len - n, total_block_len)
+        else:
+            blocks_to_take = n
         for i, blk in enumerate(self.blocks):
             if self.rope_embed is not None:
                 rope_sincos = self.rope_embed(H=H, W=W)
@@ -300,9 +283,9 @@ class PT_DinoVisionTransformer(nn.Module):
             x = blk(x, rope_sincos)
             if i in blocks_to_take:
                 output.append(x)
-        assert len(output) == len(
-            blocks_to_take
-        ), f"only {len(output)} / {len(blocks_to_take)} blocks found"
+        num_found, num_taken = len(output), len(blocks_to_take)
+        message = f"only {num_found} / {num_taken} blocks found"
+        assert num_found == num_taken, message
         return output
 
     def get_intermediate_layers(
@@ -316,21 +299,22 @@ class PT_DinoVisionTransformer(nn.Module):
         norm: bool = True,
     ) -> Tuple[Union[torch.Tensor, Tuple[torch.Tensor, ...]]]:
         outputs = self._get_intermediate_layers_not_chunked(x, n)
+        num_prefix_tokens = self.n_storage_tokens + 1
         if norm:
             outputs_normed = []
             for out in outputs:
                 if self.untie_cls_and_patch_norms:
-                    x_norm_cls_reg = self.cls_norm(out[:, : self.n_storage_tokens + 1])
-                    x_norm_patch = self.norm(out[:, self.n_storage_tokens + 1 :])
-                    outputs_normed.append(
-                        torch.cat((x_norm_cls_reg, x_norm_patch), dim=1)
-                    )
+                    prefix_tokens = out[:, :num_prefix_tokens]
+                    x_norm_cls_reg = self.cls_norm(prefix_tokens)
+                    x_norm_patch = self.norm(out[:, num_prefix_tokens:])
+                    tokens = (x_norm_cls_reg, x_norm_patch)
+                    outputs_normed.append(torch.cat(tokens, dim=1))
                 else:
                     outputs_normed.append(self.norm(out))
             outputs = outputs_normed
         class_tokens = [out[:, 0] for out in outputs]
-        extra_tokens = [out[:, 1 : self.n_storage_tokens + 1] for out in outputs]
-        outputs = [out[:, self.n_storage_tokens + 1 :] for out in outputs]
+        extra_tokens = [out[:, 1:num_prefix_tokens] for out in outputs]
+        outputs = [out[:, num_prefix_tokens:] for out in outputs]
         if reshape:
             B, _, h, w = x.shape
             outputs = [
@@ -359,87 +343,47 @@ class PT_DinoVisionTransformer(nn.Module):
 
 
 def PT_vit_small(patch_size=16, **kwargs):
-    model = PT_DinoVisionTransformer(
-        patch_size=patch_size,
-        embed_dim=384,
-        depth=12,
-        num_heads=6,
-        ffn_ratio=4,
-        **kwargs,
-    )
+    config = dict(embed_dim=384, depth=12, num_heads=6, ffn_ratio=4)
+    model = PT_DinoVisionTransformer(patch_size=patch_size, **config, **kwargs)
     return model
 
 
 def PT_vit_base(patch_size=16, **kwargs):
-    model = PT_DinoVisionTransformer(
-        patch_size=patch_size,
-        embed_dim=768,
-        depth=12,
-        num_heads=12,
-        ffn_ratio=4,
-        **kwargs,
-    )
+    config = dict(embed_dim=768, depth=12, num_heads=12, ffn_ratio=4)
+    model = PT_DinoVisionTransformer(patch_size=patch_size, **config, **kwargs)
     return model
 
 
 def PT_vit_large(patch_size=16, **kwargs):
-    model = PT_DinoVisionTransformer(
-        patch_size=patch_size,
-        embed_dim=1024,
-        depth=24,
-        num_heads=16,
-        ffn_ratio=4,
-        **kwargs,
-    )
+    config = dict(embed_dim=1024, depth=24, num_heads=16, ffn_ratio=4)
+    model = PT_DinoVisionTransformer(patch_size=patch_size, **config, **kwargs)
     return model
 
 
 def PT_vit_so400m(patch_size=16, **kwargs):
-    model = PT_DinoVisionTransformer(
-        patch_size=patch_size,
-        embed_dim=1152,
-        depth=27,
-        num_heads=18,
-        ffn_ratio=3.777777778,
-        **kwargs,
-    )
+    config = dict(embed_dim=1152, depth=27, num_heads=18)
+    config.update(ffn_ratio=3.777777778)
+    model = PT_DinoVisionTransformer(patch_size=patch_size, **config, **kwargs)
     return model
 
 
 def PT_vit_huge2(patch_size=16, **kwargs):
-    model = PT_DinoVisionTransformer(
-        patch_size=patch_size,
-        embed_dim=1280,
-        depth=32,
-        num_heads=20,
-        ffn_ratio=4,
-        **kwargs,
-    )
+    config = dict(embed_dim=1280, depth=32, num_heads=20, ffn_ratio=4)
+    model = PT_DinoVisionTransformer(patch_size=patch_size, **config, **kwargs)
     return model
 
 
 def PT_vit_giant2(patch_size=16, **kwargs):
     """
-    Close to ViT-giant, with embed-dim 1536 and 24 heads => embed-dim per head 64
+    Close to ViT-giant, with embed-dim 1536 and 24 heads => embed-dim per
+    head 64
     """
-    model = PT_DinoVisionTransformer(
-        patch_size=patch_size,
-        embed_dim=1536,
-        depth=40,
-        num_heads=24,
-        ffn_ratio=4,
-        **kwargs,
-    )
+    config = dict(embed_dim=1536, depth=40, num_heads=24, ffn_ratio=4)
+    model = PT_DinoVisionTransformer(patch_size=patch_size, **config, **kwargs)
     return model
 
 
 def PT_vit_7b(patch_size=16, **kwargs):
-    model = PT_DinoVisionTransformer(
-        patch_size=patch_size,
-        embed_dim=4096,
-        depth=40,
-        num_heads=32,
-        ffn_ratio=3,
-        **kwargs,
-    )
+    config = dict(embed_dim=4096, depth=40, num_heads=32, ffn_ratio=3)
+    model = PT_DinoVisionTransformer(patch_size=patch_size, **config, **kwargs)
     return model

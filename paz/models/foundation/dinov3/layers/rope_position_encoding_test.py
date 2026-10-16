@@ -45,63 +45,42 @@ def run_and_compare(keras_model, torch_model, H, W, training, atol=1e-5):
     np.testing.assert_allclose(cos_keras_np, cos_torch_np, atol=atol)
 
 
+def head_kwargs(params):
+    return dict(embed_dim=params["embed_dim"], num_heads=params["num_heads"])
+
+
 def test_base_parametrization(params):
     """Tests equivalence when using the `base` parameter."""
     torch.manual_seed(0)
-    torch_model = PT_RopePositionEmbedding(
-        embed_dim=params["embed_dim"],
-        num_heads=params["num_heads"],
-        base=100.0,
-        dtype=torch.float32,
-    )
-    keras_model = RopePositionEmbedding(
-        embed_dim=params["embed_dim"],
-        num_heads=params["num_heads"],
-        base=100.0,
-        dtype="float32",
-    )
-    run_and_compare(keras_model, torch_model, params["H"], params["W"], training=False)
+    kwargs = head_kwargs(params)
+    kwargs.update(base=100.0)
+    torch_model = PT_RopePositionEmbedding(**kwargs, dtype=torch.float32)
+    keras_model = RopePositionEmbedding(**kwargs, dtype="float32")
+    args = (keras_model, torch_model, params["H"], params["W"])
+    run_and_compare(*args, training=False)
 
 
 def test_period_parametrization(params):
     """Tests equivalence when using `min_period` and `max_period`."""
     torch.manual_seed(0)
-    torch_model = PT_RopePositionEmbedding(
-        embed_dim=params["embed_dim"],
-        num_heads=params["num_heads"],
-        base=None,
-        min_period=1.0,
-        max_period=100.0,
-        dtype=torch.float32,
-    )
-    keras_model = RopePositionEmbedding(
-        embed_dim=params["embed_dim"],
-        num_heads=params["num_heads"],
-        base=None,
-        min_period=1.0,
-        max_period=100.0,
-        dtype="float32",
-    )
-    run_and_compare(keras_model, torch_model, params["H"], params["W"], training=False)
+    kwargs = head_kwargs(params)
+    kwargs.update(base=None, min_period=1.0, max_period=100.0)
+    torch_model = PT_RopePositionEmbedding(**kwargs, dtype=torch.float32)
+    keras_model = RopePositionEmbedding(**kwargs, dtype="float32")
+    args = (keras_model, torch_model, params["H"], params["W"])
+    run_and_compare(*args, training=False)
 
 
 @pytest.mark.parametrize("normalize", ["max", "min", "separate"])
 def test_normalize_coords(params, normalize):
     """Tests all `normalize_coords` options."""
     torch.manual_seed(0)
-    torch_model = PT_RopePositionEmbedding(
-        embed_dim=params["embed_dim"],
-        num_heads=params["num_heads"],
-        normalize_coords=normalize,
-        dtype=torch.float32,
-    )
-    keras_model = RopePositionEmbedding(
-        embed_dim=params["embed_dim"],
-        num_heads=params["num_heads"],
-        normalize_coords=normalize,
-        dtype="float32",
-    )
-    run_and_compare(keras_model, torch_model, params["H"], params["W"], training=False)
+    kwargs = head_kwargs(params)
+    kwargs.update(normalize_coords=normalize)
+    torch_model = PT_RopePositionEmbedding(**kwargs, dtype=torch.float32)
+    keras_model = RopePositionEmbedding(**kwargs, dtype="float32")
+    args = (keras_model, torch_model, params["H"], params["W"])
+    run_and_compare(*args, training=False)
 
 
 def test_training_augmentations_are_different(params):
@@ -122,12 +101,9 @@ def test_training_augmentations_are_different(params):
     torch_init_args["dtype"] = torch.float32
     keras_model = RopePositionEmbedding(**init_args)
     torch_model = PT_RopePositionEmbedding(**torch_init_args)
-    sin_eval_keras, cos_eval_keras = keras_model(
-        H=params["H"], W=params["W"], training=False
-    )
-    sin_train_keras, cos_train_keras = keras_model(
-        H=params["H"], W=params["W"], training=True
-    )
+    size = dict(H=params["H"], W=params["W"])
+    sin_eval_keras, cos_eval_keras = keras_model(**size, training=False)
+    sin_train_keras, cos_train_keras = keras_model(**size, training=True)
     assert not np.allclose(np.array(sin_eval_keras), np.array(sin_train_keras))
     assert not np.allclose(np.array(cos_eval_keras), np.array(cos_train_keras))
     torch_model.eval()
@@ -143,38 +119,28 @@ def test_training_augmentations_are_different(params):
 DINO_REPO_PATH = ""  # Not needed
 DINO_WEIGHT_PATH = "/path/that/does/not/exist/dinov3_vits16_pretrain.pth"
 dinov3_files_exist = os.path.isfile(DINO_WEIGHT_PATH)
+SKIP_REASON = "DINOv3 local model/weight files not found."
 
 
-@pytest.mark.skipif(
-    not dinov3_files_exist, reason="DINOv3 local model/weight files not found."
-)
+@pytest.mark.skipif(not dinov3_files_exist, reason=SKIP_REASON)
 def test_dinov3_real_pretrained_weights(params):
-    dinov3_model = torch.hub.load(
-        DINO_REPO_PATH, "dinov3_vits16", source="local", weights=DINO_WEIGHT_PATH
-    )
+    kwargs = dict(source="local", weights=DINO_WEIGHT_PATH)
+    dinov3_model = torch.hub.load(DINO_REPO_PATH, "dinov3_vits16", **kwargs)
     dinov3_model.eval()
     torch_pretrained_rope = dinov3_model.rope_embed
     dino_embed_dim = dinov3_model.embed_dim
     dino_num_heads = dinov3_model.blocks[0].attn.num_heads
     torch_periods_np = torch_pretrained_rope.periods.cpu().numpy()
-    keras_model = RopePositionEmbedding(
-        embed_dim=dino_embed_dim,
-        num_heads=dino_num_heads,
-        base=torch_pretrained_rope.base,
-        min_period=torch_pretrained_rope.min_period,
-        max_period=torch_pretrained_rope.max_period,
-        normalize_coords=torch_pretrained_rope.normalize_coords,
-        shift_coords=torch_pretrained_rope.shift_coords,
-        jitter_coords=torch_pretrained_rope.jitter_coords,
-        rescale_coords=torch_pretrained_rope.rescale_coords,
-        dtype="float32",
-        periods=torch_periods_np,
-    )
-    run_and_compare(
-        keras_model,
-        torch_pretrained_rope,
-        H=params["H"],
-        W=params["W"],
-        training=False,
-        atol=1e-5,
-    )
+    rope = torch_pretrained_rope
+    kwargs = dict(embed_dim=dino_embed_dim, num_heads=dino_num_heads)
+    kwargs.update(base=rope.base)
+    kwargs.update(min_period=rope.min_period, max_period=rope.max_period)
+    kwargs.update(normalize_coords=rope.normalize_coords)
+    kwargs.update(shift_coords=rope.shift_coords)
+    kwargs.update(jitter_coords=rope.jitter_coords)
+    kwargs.update(rescale_coords=rope.rescale_coords)
+    kwargs.update(dtype="float32", periods=torch_periods_np)
+    keras_model = RopePositionEmbedding(**kwargs)
+    args = (keras_model, torch_pretrained_rope)
+    kwargs = dict(H=params["H"], W=params["W"], training=False, atol=1e-5)
+    run_and_compare(*args, **kwargs)

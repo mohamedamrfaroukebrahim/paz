@@ -12,17 +12,19 @@ from paz.models.foundation.dinov3.layers.torch_layers_for_testing import (
 )
 
 
+def port_dense(torch_layer, keras_layer):
+    weights = [torch_layer.weight.T.detach().numpy()]
+    if torch_layer.bias is not None:
+        weights.append(torch_layer.bias.detach().numpy())
+    keras_layer.set_weights(weights)
+
+
 def port_weights(torch_model, keras_model):
     """Copies weights from a PyTorch model to its Keras equivalent."""
     qkv = keras_model.get_layer(f"{keras_model.name}_qkv")
     proj = keras_model.get_layer(f"{keras_model.name}_proj")
-    qkv.kernel.assign(torch_model.qkv.weight.T.detach().numpy())
-    if torch_model.qkv.bias is not None:
-        qkv.bias.assign(torch_model.qkv.bias.detach().numpy())
-
-    proj.kernel.assign(torch_model.proj.weight.T.detach().numpy())
-    if torch_model.proj.bias is not None:
-        proj.bias.assign(torch_model.proj.bias.detach().numpy())
+    port_dense(torch_model.qkv, qkv)
+    port_dense(torch_model.proj, proj)
 
 
 @pytest.fixture(scope="module")
@@ -38,10 +40,8 @@ def inputs(params):
     """Provides random input tensors for Torch and Keras."""
     p = params
     x_torch = torch.rand(p["BATCH"], p["SEQ_LEN"], p["DIM"])
-    rope_torch = (
-        torch.rand(1, p["NUM_HEADS"], p["SEQ_LEN"], p["DIM"] // p["NUM_HEADS"]),
-        torch.rand(1, p["NUM_HEADS"], p["SEQ_LEN"], p["DIM"] // p["NUM_HEADS"]),
-    )
+    shape = (1, p["NUM_HEADS"], p["SEQ_LEN"], p["DIM"] // p["NUM_HEADS"])
+    rope_torch = (torch.rand(*shape), torch.rand(*shape))
     x_keras = x_torch.numpy()
     rope_keras = (rope_torch[0].numpy(), rope_torch[1].numpy())
     return x_torch, x_keras, rope_torch, rope_keras
@@ -51,9 +51,8 @@ def inputs(params):
 def self_attention_models(params):
     """Provides initialized and weight-ported SelfAttention models."""
     p = params
-    torch_attn = PT_SelfAttention(
-        p["DIM"], p["NUM_HEADS"], qkv_bias=True, proj_bias=True
-    )
+    bias_kwargs = dict(qkv_bias=True, proj_bias=True)
+    torch_attn = PT_SelfAttention(p["DIM"], p["NUM_HEADS"], **bias_kwargs)
     kwargs = dict(qkv_bias=True, proj_bias=True, use_rope=True)
     keras_attn = SelfAttention(p["DIM"], p["NUM_HEADS"], **kwargs)
     torch_attn.eval()
@@ -66,17 +65,14 @@ def self_attention_models(params):
 def causal_self_attention_models(params):
     """Provides initialized and weight-ported CausalSelfAttention models."""
     p = params
-    torch_causal_attn = PT_CausalSelfAttention(
-        p["DIM"], p["NUM_HEADS"], qkv_bias=True, proj_bias=True
-    )
-    keras_causal_attn = CausalSelfAttention(
-        p["DIM"], p["NUM_HEADS"], qkv_bias=True, proj_bias=True
-    )
+    args = (p["DIM"], p["NUM_HEADS"])
+    bias_kwargs = dict(qkv_bias=True, proj_bias=True)
+    torch_causal_attn = PT_CausalSelfAttention(*args, **bias_kwargs)
+    keras_causal_attn = CausalSelfAttention(*args, **bias_kwargs)
     torch_causal_attn.eval()
 
-    _ = keras_causal_attn(
-        np.zeros((p["BATCH"], p["SEQ_LEN"], p["DIM"]), dtype="float32")
-    )
+    shape = (p["BATCH"], p["SEQ_LEN"], p["DIM"])
+    _ = keras_causal_attn(np.zeros(shape, dtype="float32"))
     port_weights(torch_causal_attn, keras_causal_attn)
     return torch_causal_attn, keras_causal_attn
 
@@ -89,9 +85,8 @@ def test_self_attention_call(self_attention_models, inputs):
     torch_out = torch_attn(x_torch, rope=rope_torch).detach().numpy()
     keras_out = np.array(keras_attn([x_keras, *rope_keras], training=False))
 
-    np.testing.assert_allclose(
-        torch_out, keras_out, atol=1e-5, err_msg="`call` method outputs differ."
-    )
+    message = "`call` method outputs differ."
+    np.testing.assert_allclose(torch_out, keras_out, atol=1e-5, err_msg=message)
 
 
 def test_self_attention_forward_list(self_attention_models, inputs):
@@ -99,21 +94,18 @@ def test_self_attention_forward_list(self_attention_models, inputs):
     torch_attn, keras_attn = self_attention_models
     x_torch, x_keras, rope_torch, rope_keras = inputs
 
-    torch_out_list = torch_attn.forward_list(
-        x_list=[x_torch, x_torch], rope_list=[rope_torch, rope_torch]
-    )
+    kwargs = dict(x_list=[x_torch, x_torch], rope_list=[rope_torch, rope_torch])
+    torch_out_list = torch_attn.forward_list(**kwargs)
     x_list, rope_list = [x_keras, x_keras], [rope_keras, rope_keras]
     keras_out_list = [
         keras_attn([x, *rope], training=False)
         for x, rope in zip(x_list, rope_list)
     ]
 
-    np.testing.assert_allclose(
-        torch_out_list[0].detach().numpy(),
-        np.array(keras_out_list[0]),
-        atol=1e-5,
-        err_msg="`forward_list` method outputs differ.",
-    )
+    torch_out = torch_out_list[0].detach().numpy()
+    keras_out = np.array(keras_out_list[0])
+    message = "`forward_list` method outputs differ."
+    np.testing.assert_allclose(torch_out, keras_out, atol=1e-5, err_msg=message)
 
 
 def test_causal_self_attention_call(causal_self_attention_models, inputs):
@@ -124,9 +116,8 @@ def test_causal_self_attention_call(causal_self_attention_models, inputs):
     torch_out = torch_causal_attn(x_torch).detach().numpy()
     keras_out = np.array(keras_causal_attn(x_keras, training=False))
 
-    np.testing.assert_allclose(
-        torch_out, keras_out, atol=1e-5, err_msg="Causal `call` method outputs differ."
-    )
+    message = "Causal `call` method outputs differ."
+    np.testing.assert_allclose(torch_out, keras_out, atol=1e-5, err_msg=message)
 
 
 def test_self_attention_without_rope(self_attention_models, inputs):
@@ -141,13 +132,14 @@ def test_self_attention_without_rope(self_attention_models, inputs):
     torch_out = torch_attn(x_torch, rope=None).detach().numpy()
     keras_out = np.array(keras_attn(x_keras, training=False))
 
-    np.testing.assert_allclose(
-        torch_out, keras_out, atol=1e-5, err_msg="`call` method without RoPE failed."
-    )
+    message = "`call` method without RoPE failed."
+    np.testing.assert_allclose(torch_out, keras_out, atol=1e-5, err_msg=message)
 
 
-def test_causal_attention_as_standard_attention(causal_self_attention_models, inputs):
-    """Tests CausalSelfAttention with `is_causal=False` to ensure it matches standard attention."""
+def test_causal_attention_as_standard_attention(
+        causal_self_attention_models, inputs):
+    """Tests CausalSelfAttention with `is_causal=False` to ensure it matches
+    standard attention."""
     torch_causal_attn, keras_causal_attn = causal_self_attention_models
     x_torch, x_keras, _, _ = inputs
     dim, num_heads = torch_causal_attn.dim, torch_causal_attn.num_heads
@@ -158,48 +150,42 @@ def test_causal_attention_as_standard_attention(causal_self_attention_models, in
     torch_out = torch_causal_attn(x_torch, is_causal=False).detach().numpy()
     keras_out = np.array(keras_causal_attn(x_keras, training=False))
 
-    np.testing.assert_allclose(
-        torch_out,
-        keras_out,
-        atol=1e-5,
-        err_msg="Causal layer with `is_causal=False` failed.",
-    )
+    message = "Causal layer with `is_causal=False` failed."
+    np.testing.assert_allclose(torch_out, keras_out, atol=1e-5, err_msg=message)
 
 
 def test_dropout_activation(params, inputs):
-    """Tests that dropout layers are active during training and inactive during evaluation."""
+    """Tests that dropout layers are active during training and inactive
+    during evaluation."""
     p = params
     _, x_keras, _, _ = inputs
-    keras_attn_dropout = SelfAttention(
-        p["DIM"], p["NUM_HEADS"], attn_drop=0.5, proj_drop=0.5
-    )
+    kwargs = dict(attn_drop=0.5, proj_drop=0.5)
+    keras_attn_dropout = SelfAttention(p["DIM"], p["NUM_HEADS"], **kwargs)
     _ = keras_attn_dropout(x_keras)
 
     out_train = keras_attn_dropout(x_keras, training=True)
     out_eval = keras_attn_dropout(x_keras, training=False)
 
-    assert not np.allclose(
-        out_train, out_eval
-    ), "Dropout layers seem inactive during training."
+    message = "Dropout layers seem inactive during training."
+    assert not np.allclose(out_train, out_eval), message
 
 
 def test_forward_list_varied_shapes(self_attention_models, params, inputs):
-    """Tests `forward_list` with a list of tensors having different sequence lengths."""
+    """Tests `forward_list` with a list of tensors having different sequence
+    lengths."""
     torch_attn, keras_attn = self_attention_models
     p = params
     x_torch, x_keras, rope_torch, rope_keras = inputs
 
     x_torch_short = torch.rand(p["BATCH"], p["SEQ_LEN"] // 2, p["DIM"])
     x_keras_short = x_torch_short.numpy()
-    rope_torch_short = (
-        torch.rand(1, p["NUM_HEADS"], p["SEQ_LEN"] // 2, p["DIM"] // p["NUM_HEADS"]),
-        torch.rand(1, p["NUM_HEADS"], p["SEQ_LEN"] // 2, p["DIM"] // p["NUM_HEADS"]),
-    )
-    rope_keras_short = (rope_torch_short[0].numpy(), rope_torch_short[1].numpy())
+    shape = (1, p["NUM_HEADS"], p["SEQ_LEN"] // 2, p["DIM"] // p["NUM_HEADS"])
+    rope_torch_short = (torch.rand(*shape), torch.rand(*shape))
+    rope_keras_short = tuple(rope.numpy() for rope in rope_torch_short)
 
-    torch_list_varied = torch_attn.forward_list(
-        x_list=[x_torch, x_torch_short], rope_list=[rope_torch, rope_torch_short]
-    )
+    kwargs = dict(x_list=[x_torch, x_torch_short])
+    kwargs.update(rope_list=[rope_torch, rope_torch_short])
+    torch_list_varied = torch_attn.forward_list(**kwargs)
     x_list = [x_keras, x_keras_short]
     rope_list = [rope_keras, rope_keras_short]
     keras_list_varied = [
@@ -207,21 +193,19 @@ def test_forward_list_varied_shapes(self_attention_models, params, inputs):
         for x, rope in zip(x_list, rope_list)
     ]
 
-    np.testing.assert_allclose(
-        torch_list_varied[0].detach().numpy(), keras_list_varied[0], atol=1e-5
-    )
-    np.testing.assert_allclose(
-        torch_list_varied[1].detach().numpy(), keras_list_varied[1], atol=1e-5
-    )
+    torch_out = torch_list_varied[0].detach().numpy()
+    np.testing.assert_allclose(torch_out, keras_list_varied[0], atol=1e-5)
+    torch_out = torch_list_varied[1].detach().numpy()
+    np.testing.assert_allclose(torch_out, keras_list_varied[1], atol=1e-5)
 
 
 def test_initialization_no_biases(params, inputs):
     """Tests model initialization and execution with biases set to False."""
     p = params
     x_torch, x_keras, rope_torch, rope_keras = inputs
-    torch_attn_no_bias = PT_SelfAttention(
-        p["DIM"], p["NUM_HEADS"], qkv_bias=False, proj_bias=False
-    )
+    bias_kwargs = dict(qkv_bias=False, proj_bias=False)
+    args = (p["DIM"], p["NUM_HEADS"])
+    torch_attn_no_bias = PT_SelfAttention(*args, **bias_kwargs)
     kwargs = dict(qkv_bias=False, proj_bias=False, use_rope=True)
     keras_attn_no_bias = SelfAttention(p["DIM"], p["NUM_HEADS"], **kwargs)
     torch_attn_no_bias.eval()
@@ -232,24 +216,23 @@ def test_initialization_no_biases(params, inputs):
     keras_inputs = [x_keras, *rope_keras]
     keras_out = np.array(keras_attn_no_bias(keras_inputs, training=False))
 
-    np.testing.assert_allclose(
-        torch_out, keras_out, atol=1e-5, err_msg="Model with no biases failed."
-    )
+    message = "Model with no biases failed."
+    np.testing.assert_allclose(torch_out, keras_out, atol=1e-5, err_msg=message)
 
 
 def test_value_error_on_invalid_heads(params):
-    """Tests that a ValueError is raised if `dim` is not divisible by `num_heads`."""
+    """Tests that a ValueError is raised if `dim` is not divisible by
+    `num_heads`."""
     with pytest.raises(ValueError, match="must be divisible by"):
         SelfAttention(dim=params["DIM"], num_heads=7)
 
 
 DINO_WEIGHT_PATH = "/path/that/does/not/exist/dinov3_vits16_pretrain.pth"
 dinov3_files_exist = os.path.isfile(DINO_WEIGHT_PATH)
+SKIP_REASON = "DINOv3 local model/weight files not found."
 
 
-@pytest.mark.skipif(
-    not dinov3_files_exist, reason="DINOv3 local model/weight files not found."
-)
+@pytest.mark.skipif(not dinov3_files_exist, reason=SKIP_REASON)
 def test_dinov3_pretrained_weights_match():
     """
     Tests the Keras SelfAttention layer by loading weights from a pre-trained
@@ -280,29 +263,24 @@ def test_dinov3_pretrained_weights_match():
     QKV_BIAS = torch_pretrained_attn.qkv.bias is not None
     PROJ_BIAS = torch_pretrained_attn.proj.bias is not None
 
-    keras_attn_pretrained = SelfAttention(
-        dim=PRETRAINED_DIM,
-        num_heads=PRETRAINED_NUM_HEADS,
-        qkv_bias=QKV_BIAS,
-        proj_bias=PROJ_BIAS,
-    )
+    kwargs = dict(dim=PRETRAINED_DIM, num_heads=PRETRAINED_NUM_HEADS)
+    kwargs.update(qkv_bias=QKV_BIAS, proj_bias=PROJ_BIAS)
+    keras_attn_pretrained = SelfAttention(**kwargs)
 
     BATCH_SIZE = 2
     NUM_TOKENS = 201
     x_torch_pretrained = torch.rand(BATCH_SIZE, NUM_TOKENS, PRETRAINED_DIM)
     x_keras_pretrained = x_torch_pretrained.numpy()
 
-    _ = keras_attn_pretrained(np.zeros_like(x_keras_pretrained, dtype="float32"))
+    zeros = np.zeros_like(x_keras_pretrained, dtype="float32")
+    _ = keras_attn_pretrained(zeros)
     port_weights(torch_pretrained_attn, keras_attn_pretrained)
 
-    torch_out_pretrained = torch_pretrained_attn(x_torch_pretrained).detach().numpy()
-    keras_out_pretrained = np.array(
-        keras_attn_pretrained(x_keras_pretrained, training=False)
-    )
+    torch_out_pretrained = torch_pretrained_attn(x_torch_pretrained)
+    torch_out_pretrained = torch_out_pretrained.detach().numpy()
+    outputs = keras_attn_pretrained(x_keras_pretrained, training=False)
+    keras_out_pretrained = np.array(outputs)
 
-    np.testing.assert_allclose(
-        torch_out_pretrained,
-        keras_out_pretrained,
-        atol=1e-5,
-        err_msg="Keras output with DINOv3 weights does not match PyTorch output.",
-    )
+    message = "Keras output with DINOv3 weights does not match PyTorch output."
+    args = (torch_out_pretrained, keras_out_pretrained)
+    np.testing.assert_allclose(*args, atol=1e-5, err_msg=message)

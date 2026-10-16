@@ -10,7 +10,7 @@ from paz.models.foundation.dinov3.layers.torch_layers_for_testing import PT_Laye
 def port_weights(torch_model, keras_model):
     """Copies the gamma weight from the PyTorch model to the Keras model."""
     gamma = torch_model.gamma.detach().cpu().numpy()
-    keras_model.kernel.assign(gamma)
+    keras_model.set_weights([gamma])
 
 
 @pytest.fixture(scope="module")
@@ -39,9 +39,8 @@ def test_basic_functionality(params):
     torch_out = torch_ls(x_torch).detach().cpu().numpy()
     keras_out = keras_ls(x_keras)
 
-    np.testing.assert_allclose(
-        torch_out, keras_out, atol=1e-7, err_msg="Basic functionality test failed."
-    )
+    message = "Basic functionality test failed."
+    np.testing.assert_allclose(torch_out, keras_out, atol=1e-7, err_msg=message)
 
 
 def test_non_default_initialization(params):
@@ -59,16 +58,13 @@ def test_non_default_initialization(params):
     torch_out = torch_ls(x_torch).detach().cpu().numpy()
     keras_out = keras_ls(x_keras)
 
-    np.testing.assert_allclose(
-        torch_out,
-        keras_out,
-        atol=1e-5,
-        err_msg="Non-default initialization test failed.",
-    )
+    message = "Non-default initialization test failed."
+    np.testing.assert_allclose(torch_out, keras_out, atol=1e-5, err_msg=message)
 
 
 def test_3d_input_broadcasting(params):
-    """Tests if the layer correctly broadcasts the gamma weight over a 3D input."""
+    """Tests if the layer correctly broadcasts the gamma weight over a 3D
+    input."""
     torch_ls = PT_LayerScale(params["DIM"])
     keras_ls = LayerScale(params["DIM"])
 
@@ -81,9 +77,8 @@ def test_3d_input_broadcasting(params):
     torch_out = torch_ls(x_torch).detach().cpu().numpy()
     keras_out = keras_ls(x_keras)
 
-    np.testing.assert_allclose(
-        torch_out, keras_out, atol=1e-7, err_msg="3D input broadcasting test failed."
-    )
+    message = "3D input broadcasting test failed."
+    np.testing.assert_allclose(torch_out, keras_out, atol=1e-7, err_msg=message)
 
 
 def test_keras_trainability(params):
@@ -94,32 +89,29 @@ def test_keras_trainability(params):
     keras_ls = LayerScale(params["DIM"])
     _ = keras_ls(np.zeros((1, params["DIM"])))
 
-    assert (
-        len(keras_ls.trainable_weights) == 1
-    ), f"Expected 1 trainable weight, found {len(keras_ls.trainable_weights)}"
+    num_trainable = len(keras_ls.trainable_weights)
+    message = f"Expected 1 trainable weight, found {num_trainable}"
+    assert num_trainable == 1, message
     gamma_name = keras_ls.trainable_weights[0].name
-    assert gamma_name.startswith(
-        "kernel"
-    ), f"Trainable gamma should be the 'kernel', but got '{gamma_name}'"
+    message = f"Trainable gamma should be the 'kernel', but got '{gamma_name}'"
+    assert gamma_name.startswith("kernel"), message
 
 
 DINO_REPO_PATH = ""  # Not needed
 DINO_WEIGHT_PATH = "/path/that/does/not/exist/dinov3_vits16_pretrain.pth"
 dinov3_files_exist = os.path.isfile(DINO_WEIGHT_PATH)
+SKIP_REASON = "DINOv3 local model/weight files not found."
 
 
-@pytest.mark.skipif(
-    not dinov3_files_exist, reason="DINOv3 local model/weight files not found."
-)
+@pytest.mark.skipif(not dinov3_files_exist, reason=SKIP_REASON)
 def test_dinov3_pretrained_weights_match(params):
     """
     Tests LayerScale by loading weights from a pre-trained DINOv3 model
     and verifying the outputs match the original PyTorch layer.
     """
     # 1. Load the full pre-trained DINOv3 model
-    dinov3_model = torch.hub.load(
-        DINO_REPO_PATH, "dinov3_vits16", source="local", weights=DINO_WEIGHT_PATH
-    )
+    kwargs = dict(source="local", weights=DINO_WEIGHT_PATH)
+    dinov3_model = torch.hub.load(DINO_REPO_PATH, "dinov3_vits16", **kwargs)
     dinov3_model.eval()
 
     # 2. Extract a real LayerScale module from the first block
@@ -130,7 +122,8 @@ def test_dinov3_pretrained_weights_match(params):
     keras_ls_pretrained = LayerScale(dimension=PRETRAINED_DIM)
 
     # 4. Prepare a matching random input
-    x_torch_pretrained = torch.rand(params["BATCH"], params["SEQ_LEN"], PRETRAINED_DIM)
+    shape = (params["BATCH"], params["SEQ_LEN"], PRETRAINED_DIM)
+    x_torch_pretrained = torch.rand(*shape)
     x_keras_pretrained = x_torch_pretrained.cpu().numpy()
 
     # 5. Build Keras layer and port the pre-trained weights
@@ -138,14 +131,10 @@ def test_dinov3_pretrained_weights_match(params):
     port_weights(torch_pretrained_ls, keras_ls_pretrained)
 
     # 6. Get outputs and compare
-    torch_out_pretrained = (
-        torch_pretrained_ls(x_torch_pretrained).detach().cpu().numpy()
-    )
+    torch_out_pretrained = torch_pretrained_ls(x_torch_pretrained)
+    torch_out_pretrained = torch_out_pretrained.detach().cpu().numpy()
     keras_out_pretrained = keras_ls_pretrained(x_keras_pretrained)
 
-    np.testing.assert_allclose(
-        torch_out_pretrained,
-        keras_out_pretrained,
-        atol=1e-6,
-        err_msg="Pre-trained DINOv3 weights test failed.",
-    )
+    message = "Pre-trained DINOv3 weights test failed."
+    args = (torch_out_pretrained, keras_out_pretrained)
+    np.testing.assert_allclose(*args, atol=1e-6, err_msg=message)

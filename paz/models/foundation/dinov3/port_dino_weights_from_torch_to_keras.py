@@ -9,7 +9,8 @@ import numpy as np
 os.environ["KERAS_BACKEND"] = "jax"
 script_path = os.path.abspath(__file__)
 script_dir = os.path.dirname(script_path)
-project_root = os.path.abspath(os.path.join(script_dir, "..", "..", "..", ".."))
+project_root = os.path.join(script_dir, "..", "..", "..", "..")
+project_root = os.path.abspath(project_root)
 os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 
 if project_root not in sys.path:
@@ -20,11 +21,9 @@ import torch
 # ==============================================================================
 # Keras Layer Implementation
 # ==============================================================================
-from paz.models.foundation.dinov3.models.vision_transformer import (
-    vit_small,
-    vit_base,
-    vit_large,
-)
+from paz.models.foundation.dinov3.models.vision_transformer import vit_small
+from paz.models.foundation.dinov3.models.vision_transformer import vit_base
+from paz.models.foundation.dinov3.models.vision_transformer import vit_large
 from paz.models.foundation.dinov3.models import convnext
 
 # ==============================================================================
@@ -270,10 +269,14 @@ if __name__ == "__main__":
         "dinov3_convnext_large": convnext.get_convnext_arch("convnext_large"),
     }
     CONVNEXT_MODEL_WEIGHTS_PATHS = {
-        "dinov3_convnext_tiny": r"dinov3_convnext_tiny_pretrain_lvd1689m-21b726bb.pth",
-        "dinov3_convnext_small": r"dinov3_convnext_small_pretrain_lvd1689m-296db49d.pth",
-        "dinov3_convnext_base": r"dinov3_convnext_base_pretrain_lvd1689m-801f2ba9.pth",
-        "dinov3_convnext_large": r"dinov3_convnext_large_pretrain_lvd1689m-61fa432d.pth",
+        "dinov3_convnext_tiny":
+            r"dinov3_convnext_tiny_pretrain_lvd1689m-21b726bb.pth",
+        "dinov3_convnext_small":
+            r"dinov3_convnext_small_pretrain_lvd1689m-296db49d.pth",
+        "dinov3_convnext_base":
+            r"dinov3_convnext_base_pretrain_lvd1689m-801f2ba9.pth",
+        "dinov3_convnext_large":
+            r"dinov3_convnext_large_pretrain_lvd1689m-61fa432d.pth",
     }
     convnext_model_kwargs = {
         "img_size": 224,  # Used for dummy input
@@ -282,8 +285,10 @@ if __name__ == "__main__":
     }
 
     # --- Combine All Model Configs ---
-    MODEL_CONSTRUCTORS = {**VIT_MODEL_CONSTRUCTORS, **CONVNEXT_MODEL_CONSTRUCTORS}
-    MODEL_WEIGHTS_PATHS = {**VIT_MODEL_WEIGHTS_PATHS, **CONVNEXT_MODEL_WEIGHTS_PATHS}
+    MODEL_CONSTRUCTORS = {**VIT_MODEL_CONSTRUCTORS}
+    MODEL_CONSTRUCTORS.update(CONVNEXT_MODEL_CONSTRUCTORS)
+    MODEL_WEIGHTS_PATHS = {**VIT_MODEL_WEIGHTS_PATHS}
+    MODEL_WEIGHTS_PATHS.update(CONVNEXT_MODEL_WEIGHTS_PATHS)
 
     output_dir = os.path.expanduser("~/.keras/paz/models/")
     os.makedirs(output_dir, exist_ok=True)
@@ -291,12 +296,14 @@ if __name__ == "__main__":
 
     MODEL_CONFIGS = {}
     for name, constructor in MODEL_CONSTRUCTORS.items():
+        # Select the correct kwargs dict based on model type
+        is_vit = "vit" in name
+        kwargs = vit_model_kwargs if is_vit else convnext_model_kwargs
         MODEL_CONFIGS[name] = {
             "constructor": constructor,
             "weight_filename": MODEL_WEIGHTS_PATHS[name],
             "keras_name": f"dino_{name}",
-            # Select the correct kwargs dict based on model type
-            "kwargs": vit_model_kwargs if "vit" in name else convnext_model_kwargs,
+            "kwargs": kwargs,
         }
 
     # --- Main Processing Loop ---
@@ -305,22 +312,23 @@ if __name__ == "__main__":
         logging.info(f"Processing model: {model_key}")
 
         # --- Load PyTorch Weights ---
-        weight_path = os.path.join(MODELS_WEIGHTS_DIR_PATH, config["weight_filename"])
+        weight_filename = config["weight_filename"]
+        weight_path = os.path.join(MODELS_WEIGHTS_DIR_PATH, weight_filename)
         if not os.path.isfile(weight_path):
-            logging.warning(
-                f"PyTorch weight file not found at: {weight_path}. Skipping."
-            )
+            message = f"PyTorch weight file not found at: {weight_path}."
+            logging.warning(message + " Skipping.")
             continue
 
         logging.info(f"Loading PyTorch state dict from: {weight_path}...")
-        pytorch_state_dict = torch.load(weight_path, map_location=torch.device("cpu"))
+        cpu = torch.device("cpu")
+        pytorch_state_dict = torch.load(weight_path, map_location=cpu)
         logging.info("✓ PyTorch weights loaded successfully.")
 
         # --- Instantiate Keras Model ---
         logging.info("Instantiating Keras 3 DINOv3 model architecture...")
-        keras_dinov3_model = config["constructor"](
-            name=config["keras_name"], **config["kwargs"]
-        )
+        keras_name = config["keras_name"]
+        constructor = config["constructor"]
+        keras_dinov3_model = constructor(name=keras_name, **config["kwargs"])
 
         # --- Build Keras Model ---
         logging.info("Building Keras model to initialize weights...")
@@ -329,32 +337,31 @@ if __name__ == "__main__":
         # *** IMPORTANT: Use correct input shape for model type ***
         if "convnext" in model_key:
             # ConvNeXt expects channels_first: (N, C, H, W)
-            dummy_input = np.zeros((1, 3, img_size, img_size), dtype="float32")
+            input_shape = (1, 3, img_size, img_size)
         else:
             # ViT expects channels_last: (N, H, W, C)
-            dummy_input = np.zeros((1, img_size, img_size, 3), dtype="float32")
+            input_shape = (1, img_size, img_size, 3)
+        dummy_input = np.zeros(input_shape, dtype="float32")
 
         _ = keras_dinov3_model(dummy_input, training=False)
         logging.info("✓ Keras model built.")
 
         # --- Port Weights ---
         # *** IMPORTANT: Call the correct porting function ***
+        args = (pytorch_state_dict, keras_dinov3_model)
         if "convnext" in model_key:
             logging.info("Using ConvNeXt weight porting logic...")
-            keras_dinov3_model_with_weights = transfer_weights_convnext(
-                pytorch_state_dict, keras_dinov3_model
-            )
+            keras_dinov3_model_with_weights = transfer_weights_convnext(*args)
         else:
             logging.info("Using ViT weight porting logic...")
-            keras_dinov3_model_with_weights = transfer_weights_from_pt_to_keras(
-                pytorch_state_dict, keras_dinov3_model
-            )
+            port = transfer_weights_from_pt_to_keras
+            keras_dinov3_model_with_weights = port(*args)
 
         # --- Save Keras Model ---
-        final_keras_model_path = os.path.join(output_dir, f"{model_key}_ported.keras")
-        logging.info(
-            f"Saving final native Keras model to '{final_keras_model_path}'..."
-        )
+        filename = f"{model_key}_ported.keras"
+        final_keras_model_path = os.path.join(output_dir, filename)
+        message = "Saving final native Keras model to "
+        logging.info(message + f"'{final_keras_model_path}'...")
         keras_dinov3_model_with_weights.save(final_keras_model_path)
         logging.info("✓ Save complete.")
         print("-" * 80 + "\n")

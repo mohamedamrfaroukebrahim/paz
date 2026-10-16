@@ -15,13 +15,9 @@ from paz.models.foundation.dinov3.models.vision_transformer import (
 def test_serialization():
     print("\n--- Testing Model Serialization ---")
     # 1. Instantiate a small model
-    model = vit_small(
-        patch_size=16,
-        embed_dim=192,  # Smaller for speed
-        depth=2,
-        num_heads=3,
-        input_shape=(224, 224, 3),
-    )
+    # embed_dim=192 is smaller for speed
+    kwargs = dict(patch_size=16, embed_dim=192, depth=2, num_heads=3)
+    model = vit_small(**kwargs, input_shape=(224, 224, 3))
 
     # 2. Build and run inference
     input_data = np.random.randn(1, 224, 224, 3).astype("float32")

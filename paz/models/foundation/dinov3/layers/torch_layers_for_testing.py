@@ -45,16 +45,13 @@ class PT_LinearKMaskedBias(nn.Linear):
         o = self.out_features
         assert o % 3 == 0
         if self.bias is not None:
-            self.register_buffer(
-                "bias_mask", torch.full_like(self.bias, fill_value=math.nan)
-            )
+            bias_mask = torch.full_like(self.bias, fill_value=math.nan)
+            self.register_buffer("bias_mask", bias_mask)
 
     def forward(self, input: Tensor) -> Tensor:
-        masked_bias = (
-            self.bias * self.bias_mask.to(self.bias.dtype)
-            if self.bias is not None
-            else None
-        )
+        masked_bias = None
+        if self.bias is not None:
+            masked_bias = self.bias * self.bias_mask.to(self.bias.dtype)
         return F.linear(input, self.weight, masked_bias)
 
 
@@ -84,7 +81,8 @@ class PT_SelfAttention(nn.Module):
     def apply_rope(
         self, q: Tensor, k: Tensor, rope: Tensor | Tuple[Tensor, Tensor]
     ) -> Tuple[Tensor, Tensor]:
-        # All operations will use the dtype of rope, the output is cast back to the dtype of q and k
+        # All operations will use the dtype of rope, the output is cast back
+        # to the dtype of q and k
         q_dtype = q.dtype
         k_dtype = k.dtype
         sin, cos = rope
@@ -95,10 +93,12 @@ class PT_SelfAttention(nn.Module):
         prefix = N - sin.shape[-2]
         assert prefix >= 0
         q_prefix = q[:, :, :prefix, :]
-        q = PT_rope_apply(q[:, :, prefix:, :], sin, cos)  # [B, head, hw, D//head]
+        # [B, head, hw, D//head]
+        q = PT_rope_apply(q[:, :, prefix:, :], sin, cos)
         q = torch.cat((q_prefix, q), dim=-2)  # [B, head, N, D//head]
         k_prefix = k[:, :, :prefix, :]
-        k = PT_rope_apply(k[:, :, prefix:, :], sin, cos)  # [B, head, hw, D//head]
+        # [B, head, hw, D//head]
+        k = PT_rope_apply(k[:, :, prefix:, :], sin, cos)
         k = torch.cat((k_prefix, k), dim=-2)  # [B, head, N, D//head]
         q = q.to(dtype=q_dtype)
         k = k.to(dtype=k_dtype)
@@ -111,19 +111,20 @@ class PT_SelfAttention(nn.Module):
         x = self.proj_drop(x)
         return x
 
-    def forward_list(self, x_list, attn_bias=None, rope_list=None) -> List[Tensor]:
+    def forward_list(self, x_list, attn_bias=None, rope_list=None):
         assert len(x_list) == len(rope_list)  # should be enforced by the Block
         x_flat, shapes, num_tokens = PT_cat_keep_shapes(x_list)
         qkv_flat = self.qkv(x_flat)
         qkv_list = PT_uncat_with_shapes(qkv_flat, shapes, num_tokens)
         att_out = []
         for _, (qkv, _, rope) in enumerate(zip(qkv_list, shapes, rope_list)):
-            att_out.append(self.compute_attention(qkv, attn_bias=attn_bias, rope=rope))
+            kwargs = dict(attn_bias=attn_bias, rope=rope)
+            att_out.append(self.compute_attention(qkv, **kwargs))
         x_flat, shapes, num_tokens = PT_cat_keep_shapes(att_out)
         x_flat = self.proj(x_flat)
         return PT_uncat_with_shapes(x_flat, shapes, num_tokens)
 
-    def compute_attention(self, qkv: Tensor, attn_bias=None, rope=None) -> Tensor:
+    def compute_attention(self, qkv, attn_bias=None, rope=None):
         assert attn_bias is None
         B, N, _ = qkv.shape
         C = self.qkv.in_features
@@ -179,14 +180,9 @@ class PT_CausalSelfAttention(nn.Module):
         qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads)
         q, k, v = torch.unbind(qkv, 2)
         q, k, v = [t.transpose(1, 2) for t in [q, k, v]]
-        x = torch.nn.functional.scaled_dot_product_attention(
-            q,
-            k,
-            v,
-            attn_mask=None,
-            dropout_p=self.attn_drop if self.training else 0,
-            is_causal=is_causal,
-        )
+        dropout_p = self.attn_drop if self.training else 0
+        kwargs = dict(attn_mask=None, dropout_p=dropout_p, is_causal=is_causal)
+        x = F.scaled_dot_product_attention(q, k, v, **kwargs)
         x = x.transpose(1, 2).contiguous().view(B, N, C)
         x = self.proj_drop(self.proj(x))
         return x
@@ -216,9 +212,10 @@ class PT_Mlp(nn.Module, PT_ListForwardMixin):
         super().__init__()
         out_features = out_features or in_features
         hidden_features = hidden_features or in_features
-        self.fc1 = nn.Linear(in_features, hidden_features, bias=bias, device=device)
+        kwargs = dict(bias=bias, device=device)
+        self.fc1 = nn.Linear(in_features, hidden_features, **kwargs)
         self.act = act_layer()
-        self.fc2 = nn.Linear(hidden_features, out_features, bias=bias, device=device)
+        self.fc2 = nn.Linear(hidden_features, out_features, **kwargs)
         self.drop = nn.Dropout(drop)
 
     def forward(self, x: Tensor) -> Tensor:
@@ -247,15 +244,10 @@ class PT_SwiGLUFFN(nn.Module, PT_ListForwardMixin):
         hidden_features = hidden_features or in_features
         d = int(hidden_features * 2 / 3)
         swiglu_hidden_features = d + (-d % align_to)
-        self.w1 = nn.Linear(
-            in_features, swiglu_hidden_features, bias=bias, device=device
-        )
-        self.w2 = nn.Linear(
-            in_features, swiglu_hidden_features, bias=bias, device=device
-        )
-        self.w3 = nn.Linear(
-            swiglu_hidden_features, out_features, bias=bias, device=device
-        )
+        kwargs = dict(bias=bias, device=device)
+        self.w1 = nn.Linear(in_features, swiglu_hidden_features, **kwargs)
+        self.w2 = nn.Linear(in_features, swiglu_hidden_features, **kwargs)
+        self.w3 = nn.Linear(swiglu_hidden_features, out_features, **kwargs)
 
     def forward(self, x: Tensor) -> Tensor:
         x1 = self.w1(x)
@@ -333,16 +325,17 @@ class PT_PatchEmbed(nn.Module):
 
         self.flatten_embedding = flatten_embedding
 
-        self.proj = nn.Conv2d(
-            in_chans, embed_dim, kernel_size=patch_HW, stride=patch_HW
-        )
+        kwargs = dict(kernel_size=patch_HW, stride=patch_HW)
+        self.proj = nn.Conv2d(in_chans, embed_dim, **kwargs)
         self.norm = norm_layer(embed_dim) if norm_layer else nn.Identity()
 
     def forward(self, x: Tensor) -> Tensor:
         _, _, H, W = x.shape
         # patch_H, patch_W = self.patch_size
-        # assert H % patch_H == 0, f"Input image height {H} is not a multiple of patch height {patch_H}"
-        # assert W % patch_W == 0, f"Input image width {W} is not a multiple of patch width: {patch_W}"
+        # assert H % patch_H == 0, (f"Input image height {H} is not a "
+        #                           f"multiple of patch height {patch_H}")
+        # assert W % patch_W == 0, (f"Input image width {W} is not a "
+        #                           f"multiple of patch width: {patch_W}")
 
         x = self.proj(x)  # B C H W
         H, W = x.size(2), x.size(3)
@@ -408,10 +401,11 @@ class PT_RopePositionEmbedding(nn.Module):
         super().__init__()
         assert embed_dim % (4 * num_heads) == 0
         both_periods = min_period is not None and max_period is not None
-        if (base is None and not both_periods) or (base is not None and both_periods):
-            raise ValueError(
-                "Either `base` or `min_period`+`max_period` must be provided."
-            )
+        missing = base is None and not both_periods
+        duplicated = base is not None and both_periods
+        if missing or duplicated:
+            message = "Either `base` or `min_period`+`max_period` must be "
+            raise ValueError(message + "provided.")
 
         D_head = embed_dim // num_heads
         self.base = base
@@ -423,13 +417,12 @@ class PT_RopePositionEmbedding(nn.Module):
         self.jitter_coords = jitter_coords
         self.rescale_coords = rescale_coords
 
-        # Needs persistent=True because we do teacher.load_state_dict(student.state_dict()) to initialize the teacher
+        # Needs persistent=True because we do
+        # teacher.load_state_dict(student.state_dict()) to initialize the
+        # teacher
         self.dtype = dtype  # Don't rely on self.periods.dtype
-        self.register_buffer(
-            "periods",
-            torch.empty(D_head // 4, device=device, dtype=dtype),
-            persistent=True,
-        )
+        periods = torch.empty(D_head // 4, device=device, dtype=dtype)
+        self.register_buffer("periods", periods, persistent=True)
         self._init_weights()
 
     def forward(self, *, H: int, W: int) -> tuple[Tensor, Tensor]:
@@ -450,38 +443,40 @@ class PT_RopePositionEmbedding(nn.Module):
             coords_h = torch.arange(0.5, H, **dd) / H  # [H]
             coords_w = torch.arange(0.5, W, **dd) / W  # [W]
         else:
-            raise ValueError(f"Unknown normalize_coords: {self.normalize_coords}")
-        coords = torch.stack(
-            torch.meshgrid(coords_h, coords_w, indexing="ij"), dim=-1
-        )  # [H, W, 2]
+            message = f"Unknown normalize_coords: {self.normalize_coords}"
+            raise ValueError(message)
+        grid = torch.meshgrid(coords_h, coords_w, indexing="ij")
+        coords = torch.stack(grid, dim=-1)  # [H, W, 2]
         coords = coords.flatten(0, 1)  # [HW, 2]
         coords = 2.0 * coords - 1.0  # Shift range [0, 1] to [-1, +1]
 
         # Shift coords by adding a uniform value in [-shift, shift]
         if self.training and self.shift_coords is not None:
-            shift_hw = torch.empty(2, **dd).uniform_(
-                -self.shift_coords, self.shift_coords
-            )
+            bounds = (-self.shift_coords, self.shift_coords)
+            shift_hw = torch.empty(2, **dd).uniform_(*bounds)
             coords += shift_hw[None, :]
 
-        # Jitter coords by multiplying the range [-1, 1] by a log-uniform value in [1/jitter, jitter]
+        # Jitter coords by multiplying the range [-1, 1] by a log-uniform
+        # value in [1/jitter, jitter]
         if self.training and self.jitter_coords is not None:
             jitter_max = np.log(self.jitter_coords)
             jitter_min = -jitter_max
-            jitter_hw = torch.empty(2, **dd).uniform_(jitter_min, jitter_max).exp()
+            jitter_hw = torch.empty(2, **dd).uniform_(jitter_min, jitter_max)
+            jitter_hw = jitter_hw.exp()
             coords *= jitter_hw[None, :]
 
-        # Rescale coords by multiplying the range [-1, 1] by a log-uniform value in [1/rescale, rescale]
+        # Rescale coords by multiplying the range [-1, 1] by a log-uniform
+        # value in [1/rescale, rescale]
         if self.training and self.rescale_coords is not None:
             rescale_max = np.log(self.rescale_coords)
             rescale_min = -rescale_max
-            rescale_hw = torch.empty(1, **dd).uniform_(rescale_min, rescale_max).exp()
+            rescale_hw = torch.empty(1, **dd)
+            rescale_hw = rescale_hw.uniform_(rescale_min, rescale_max).exp()
             coords *= rescale_hw
 
         # Prepare angles and sin/cos
-        angles = (
-            2 * math.pi * coords[:, :, None] / self.periods[None, None, :]
-        )  # [HW, 2, D//4]
+        # [HW, 2, D//4]
+        angles = 2 * math.pi * coords[:, :, None] / self.periods[None, None, :]
         angles = angles.flatten(1, 2)  # [HW, D//2]
         angles = angles.tile(2)  # [HW, D]
         cos = torch.cos(angles)  # [HW, D]
@@ -492,20 +487,18 @@ class PT_RopePositionEmbedding(nn.Module):
     def _init_weights(self):
         device = self.periods.device
         dtype = self.dtype
+        dd = dict(device=device, dtype=dtype)
         if self.base is not None:
-            periods = self.base ** (
-                2
-                * torch.arange(self.D_head // 4, device=device, dtype=dtype)
-                / (self.D_head // 2)
-            )  # [D//4]
+            arange = torch.arange(self.D_head // 4, **dd)
+            periods = self.base ** (2 * arange / (self.D_head // 2))  # [D//4]
         else:
             base = self.max_period / self.min_period
-            exponents = torch.linspace(
-                0, 1, self.D_head // 4, device=device, dtype=dtype
-            )  # [D//4] range [0, 1]
+            # [D//4] range [0, 1]
+            exponents = torch.linspace(0, 1, self.D_head // 4, **dd)
             periods = base**exponents  # range [1, max_period / min_period]
             periods = periods / base  # range [min_period / max_period, 1]
-            periods = periods * self.max_period  # range [min_period, max_period]
+            # range [min_period, max_period]
+            periods = periods * self.max_period
         self.periods.data = periods
 
 
@@ -532,37 +525,25 @@ class PT_SelfAttentionBlock(nn.Module):
         super().__init__()
         # print(f"biases: qkv: {qkv_bias}, proj: {proj_bias}, ffn: {ffn_bias}")
         self.norm1 = norm_layer(dim)
-        self.attn = attn_class(
-            dim,
-            num_heads=num_heads,
-            qkv_bias=qkv_bias,
-            proj_bias=proj_bias,
-            attn_drop=attn_drop,
-            proj_drop=drop,
-            mask_k_bias=mask_k_bias,
-            device=device,
-        )
-        self.ls1 = (
-            PT_LayerScale(dim, init_values=init_values, device=device)
-            if init_values
-            else nn.Identity()
-        )
+        kwargs = dict(num_heads=num_heads, qkv_bias=qkv_bias)
+        kwargs.update(proj_bias=proj_bias, attn_drop=attn_drop, proj_drop=drop)
+        kwargs.update(mask_k_bias=mask_k_bias, device=device)
+        self.attn = attn_class(dim, **kwargs)
+        ls_kwargs = dict(init_values=init_values, device=device)
+        if init_values:
+            self.ls1 = PT_LayerScale(dim, **ls_kwargs)
+        else:
+            self.ls1 = nn.Identity()
 
         self.norm2 = norm_layer(dim)
         mlp_hidden_dim = int(dim * ffn_ratio)
-        self.mlp = ffn_layer(
-            in_features=dim,
-            hidden_features=mlp_hidden_dim,
-            act_layer=act_layer,
-            drop=drop,
-            bias=ffn_bias,
-            device=device,
-        )
-        self.ls2 = (
-            PT_LayerScale(dim, init_values=init_values, device=device)
-            if init_values
-            else nn.Identity()
-        )
+        kwargs = dict(in_features=dim, hidden_features=mlp_hidden_dim)
+        kwargs.update(act_layer=act_layer, drop=drop, bias=ffn_bias)
+        self.mlp = ffn_layer(**kwargs, device=device)
+        if init_values:
+            self.ls2 = PT_LayerScale(dim, **ls_kwargs)
+        else:
+            self.ls2 = nn.Identity()
 
         self.sample_drop_ratio = drop_path
 
@@ -576,15 +557,19 @@ class PT_SelfAttentionBlock(nn.Module):
         sin, cos = rope
         assert sin.ndim == cos.ndim
         if sin.ndim == 4:
-            # If the rope embedding has a batch dimension (is different for each batch element), index into it
-            return sin[indices], cos[indices]  # [batch, heads, patches, embed_dim]
+            # If the rope embedding has a batch dimension (is different for
+            # each batch element), index into it
+            # [batch, heads, patches, embed_dim]
+            return sin[indices], cos[indices]
         else:
             # No batch dimension, do not index
-            return sin, cos  # [heads, patches, embed_dim] or [patches, embed_dim]
+            # [heads, patches, embed_dim] or [patches, embed_dim]
+            return sin, cos
 
     def _forward(self, x: Tensor, rope=None) -> Tensor:
         """
-        This is the reference implementation for a single tensor, matching what is done below for a list.
+        This is the reference implementation for a single tensor, matching
+        what is done below for a list.
         We call the list op on [x] instead of this function.
         """
         b, _, _ = x.shape
@@ -592,43 +577,36 @@ class PT_SelfAttentionBlock(nn.Module):
         residual_scale_factor = b / sample_subset_size
 
         if self.training and self.sample_drop_ratio > 0.0:
-            indices_1 = (torch.randperm(b, device=x.device))[:sample_subset_size]
+            permutation = torch.randperm(b, device=x.device)
+            indices_1 = permutation[:sample_subset_size]
 
             x_subset_1 = x[indices_1]
             rope_subset = self._maybe_index_rope(rope, indices_1)
             residual_1 = self.attn(self.norm1(x_subset_1), rope=rope_subset)
 
-            x_attn = torch.index_add(
-                x,
-                dim=0,
-                source=self.ls1(residual_1),
-                index=indices_1,
-                alpha=residual_scale_factor,
-            )
+            kwargs = dict(dim=0, source=self.ls1(residual_1), index=indices_1)
+            x_attn = torch.index_add(x, **kwargs, alpha=residual_scale_factor)
 
-            indices_2 = (torch.randperm(b, device=x.device))[:sample_subset_size]
+            permutation = torch.randperm(b, device=x.device)
+            indices_2 = permutation[:sample_subset_size]
 
             x_subset_2 = x_attn[indices_2]
             residual_2 = self.mlp(self.norm2(x_subset_2))
 
-            x_ffn = torch.index_add(
-                x_attn,
-                dim=0,
-                source=self.ls2(residual_2),
-                index=indices_2,
-                alpha=residual_scale_factor,
-            )
+            kwargs = dict(dim=0, source=self.ls2(residual_2), index=indices_2)
+            alpha = residual_scale_factor
+            x_ffn = torch.index_add(x_attn, **kwargs, alpha=alpha)
         else:
             x_attn = x + self.ls1(self.attn(self.norm1(x), rope=rope))
             x_ffn = x_attn + self.ls2(self.mlp(self.norm2(x_attn)))
 
         return x_ffn
 
-    def _forward_list(self, x_list: List[Tensor], rope_list=None) -> List[Tensor]:
+    def _forward_list(self, x_list, rope_list=None):
         """
-        This list operator concatenates the tokens from the list of inputs together to save
-        on the elementwise operations. Torch-compile memory-planning allows hiding the overhead
-        related to concat ops.
+        This list operator concatenates the tokens from the list of inputs
+        together to save on the elementwise operations. Torch-compile
+        memory-planning allows hiding the overhead related to concat ops.
         """
         b_list = [x.shape[0] for x in x_list]
         sample_subset_sizes = [
@@ -640,9 +618,10 @@ class PT_SelfAttentionBlock(nn.Module):
         ]
 
         if self.training and self.sample_drop_ratio > 0.0:
+            triples = list(zip(x_list, b_list, sample_subset_sizes))
             indices_1_list = [
                 (torch.randperm(b, device=x.device))[:sample_subset_size]
-                for x, b, sample_subset_size in zip(x_list, b_list, sample_subset_sizes)
+                for x, b, sample_subset_size in triples
             ]
             x_subset_1_list = [
                 x[indices_1] for x, indices_1 in zip(x_list, indices_1_list)
@@ -657,47 +636,37 @@ class PT_SelfAttentionBlock(nn.Module):
                 rope_subset_list = rope_list
 
             flattened, shapes, num_tokens = PT_cat_keep_shapes(x_subset_1_list)
-            norm1 = PT_uncat_with_shapes(self.norm1(flattened), shapes, num_tokens)
-            residual_1_list = self.attn.forward_list(norm1, rope_list=rope_subset_list)
+            norm1_flat = self.norm1(flattened)
+            norm1 = PT_uncat_with_shapes(norm1_flat, shapes, num_tokens)
+            forward_list = self.attn.forward_list
+            residual_1_list = forward_list(norm1, rope_list=rope_subset_list)
 
-            x_attn_list = [
-                torch.index_add(
-                    x,
-                    dim=0,
-                    source=self.ls1(residual_1),
-                    index=indices_1,
-                    alpha=residual_scale_factor,
-                )
-                for x, residual_1, indices_1, residual_scale_factor in zip(
-                    x_list, residual_1_list, indices_1_list, residual_scale_factors
-                )
-            ]
+            factors = residual_scale_factors
+            quads = zip(x_list, residual_1_list, indices_1_list, factors)
+            x_attn_list = []
+            for x, residual_1, indices_1, factor in quads:
+                source = self.ls1(residual_1)
+                kwargs = dict(dim=0, source=source, index=indices_1)
+                x_attn_list.append(torch.index_add(x, **kwargs, alpha=factor))
 
             indices_2_list = [
                 (torch.randperm(b, device=x.device))[:sample_subset_size]
-                for x, b, sample_subset_size in zip(x_list, b_list, sample_subset_sizes)
+                for x, b, sample_subset_size in triples
             ]
-            x_subset_2_list = [
-                x[indices_2] for x, indices_2 in zip(x_attn_list, indices_2_list)
-            ]
+            pairs = zip(x_attn_list, indices_2_list)
+            x_subset_2_list = [x[indices_2] for x, indices_2 in pairs]
             flattened, shapes, num_tokens = PT_cat_keep_shapes(x_subset_2_list)
             norm2_flat = self.norm2(flattened)
             norm2_list = PT_uncat_with_shapes(norm2_flat, shapes, num_tokens)
 
             residual_2_list = self.mlp.forward_list(norm2_list)
 
-            x_ffn = [
-                torch.index_add(
-                    x_attn,
-                    dim=0,
-                    source=self.ls2(residual_2),
-                    index=indices_2,
-                    alpha=residual_scale_factor,
-                )
-                for x_attn, residual_2, indices_2, residual_scale_factor in zip(
-                    x_attn_list, residual_2_list, indices_2_list, residual_scale_factors
-                )
-            ]
+            quads = zip(x_attn_list, residual_2_list, indices_2_list, factors)
+            x_ffn = []
+            for x_attn, residual_2, indices_2, factor in quads:
+                source = self.ls2(residual_2)
+                kwargs = dict(dim=0, source=source, index=indices_2)
+                x_ffn.append(torch.index_add(x_attn, **kwargs, alpha=factor))
         else:
             x_out = []
             for x, rope in zip(x_list, rope_list):
@@ -713,12 +682,15 @@ class PT_SelfAttentionBlock(nn.Module):
             # for reference:
             # return self._forward(x_or_x_list, rope=rope_or_rope_list)
             # in order to match implementations we call the list op:
-            return self._forward_list([x_or_x_list], rope_list=[rope_or_rope_list])[0]
+            rope_list = [rope_or_rope_list]
+            return self._forward_list([x_or_x_list], rope_list=rope_list)[0]
         elif isinstance(x_or_x_list, list):
             if rope_or_rope_list is None:
                 rope_or_rope_list = [None for x in x_or_x_list]
-            # return [self._forward(x, rope=rope) for x, rope in zip(x_or_x_list, rope_or_rope_list)]
-            return self._forward_list(x_or_x_list, rope_list=rope_or_rope_list)
+            # pairs = zip(x_or_x_list, rope_or_rope_list)
+            # return [self._forward(x, rope=rope) for x, rope in pairs]
+            rope_list = rope_or_rope_list
+            return self._forward_list(x_or_x_list, rope_list=rope_list)
         else:
             raise AssertionError
 
@@ -739,30 +711,24 @@ class PT_CausalSelfAttentionBlock(nn.Module):
 
         self.dim = dim
         self.is_causal = is_causal
-        self.ls1 = (
-            PT_LayerScale(dim, init_values=ls_init_value)
-            if ls_init_value
-            else nn.Identity()
-        )
+        if ls_init_value:
+            self.ls1 = PT_LayerScale(dim, init_values=ls_init_value)
+        else:
+            self.ls1 = nn.Identity()
         self.attention_norm = norm_layer(dim)
-        self.attention = PT_CausalSelfAttention(
-            dim, num_heads, attn_drop=dropout_prob, proj_drop=dropout_prob
-        )
+        kwargs = dict(attn_drop=dropout_prob, proj_drop=dropout_prob)
+        self.attention = PT_CausalSelfAttention(dim, num_heads, **kwargs)
 
         self.ffn_norm = norm_layer(dim)
         ffn_hidden_dim = int(dim * ffn_ratio)
-        self.feed_forward = PT_Mlp(
-            in_features=dim,
-            hidden_features=ffn_hidden_dim,
-            drop=dropout_prob,
-            act_layer=act_layer,
-        )
+        kwargs = dict(in_features=dim, hidden_features=ffn_hidden_dim)
+        kwargs.update(drop=dropout_prob, act_layer=act_layer)
+        self.feed_forward = PT_Mlp(**kwargs)
 
-        self.ls2 = (
-            PT_LayerScale(dim, init_values=ls_init_value)
-            if ls_init_value
-            else nn.Identity()
-        )
+        if ls_init_value:
+            self.ls2 = PT_LayerScale(dim, init_values=ls_init_value)
+        else:
+            self.ls2 = nn.Identity()
 
     def init_weights(
         self,
@@ -780,11 +746,8 @@ class PT_CausalSelfAttentionBlock(nn.Module):
         nn.init.normal_(self.feed_forward.fc2.weight, std=init_proj_std)
         self.ffn_norm.reset_parameters()
 
-    def forward(
-        self,
-        x: torch.Tensor,
-    ):
-
-        x_attn = x + self.ls1(self.attention(self.attention_norm(x), self.is_causal))
+    def forward(self, x: torch.Tensor):
+        attended = self.attention(self.attention_norm(x), self.is_causal)
+        x_attn = x + self.ls1(attended)
         x_ffn = x_attn + self.ls2(self.feed_forward(self.ffn_norm(x_attn)))
         return x_ffn

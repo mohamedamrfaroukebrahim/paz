@@ -49,15 +49,15 @@ def test_basic_equivalence(params):
     run_and_compare(keras_model, torch_model, input_np)
 
 
-@pytest.mark.parametrize(
-    "shape_params",
-    [
-        (128,),
-        (16, 64),
-        (4, 10, 32),
-        (2, 8, 8, 16),
-    ],
-)
+SHAPE_CASES = [
+    (128,),
+    (16, 64),
+    (4, 10, 32),
+    (2, 8, 8, 16),
+]
+
+
+@pytest.mark.parametrize("shape_params", SHAPE_CASES)
 def test_different_shapes(shape_params):
     """Tests equivalence across various input tensor shapes."""
     dim = shape_params[-1]
@@ -128,20 +128,18 @@ def test_nan_propagation(params):
 DINO_REPO_PATH = ""  # Not needed
 DINO_WEIGHT_PATH = "/path/that/does/not/exist/dinov3_vits16_pretrain.pth"
 dinov3_files_exist = os.path.isfile(DINO_WEIGHT_PATH)
+SKIP_REASON = "DINOv3 local model/weight files not found."
 
 
-@pytest.mark.skipif(
-    not dinov3_files_exist, reason="DINOv3 local model/weight files not found."
-)
+@pytest.mark.skipif(not dinov3_files_exist, reason=SKIP_REASON)
 def test_dinov3_real_pretrained_weights(params):
     """
     Tests equivalence by loading ACTUAL pre-trained weights from a DINOv3
     model file and comparing outputs.
     """
     # 1. Load the pre-trained DINOv3 model from local source
-    dinov3_model = torch.hub.load(
-        DINO_REPO_PATH, "dinov3_vits16", source="local", weights=DINO_WEIGHT_PATH
-    )
+    kwargs = dict(source="local", weights=DINO_WEIGHT_PATH)
+    dinov3_model = torch.hub.load(DINO_REPO_PATH, "dinov3_vits16", **kwargs)
     dinov3_model.eval()
 
     # 2. Extract the real LayerNorm layer and its parameters
@@ -150,12 +148,9 @@ def test_dinov3_real_pretrained_weights(params):
     dino_eps = torch_pretrained_norm.eps
 
     # 3. Use the built-in Keras LayerNormalization layer
-    keras_model = keras.layers.LayerNormalization(
-        epsilon=dino_eps,
-        # Ensure parameter names match for weight loading
-        gamma_initializer="ones",
-        beta_initializer="zeros",
-    )
+    # Ensure parameter names match for weight loading
+    kwargs = dict(gamma_initializer="ones", beta_initializer="zeros")
+    keras_model = keras.layers.LayerNormalization(epsilon=dino_eps, **kwargs)
 
     # 4. Create matching random input data
     shape = (params["batch_size"], params["seq_len"], dino_dim)

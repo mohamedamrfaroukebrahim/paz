@@ -23,66 +23,38 @@ from paz.models.foundation.dinov3.layers.torch_layers_for_testing import (
 )
 
 
+def clone(tensor):
+    return tensor.detach().clone()
+
+
+def copy_norm(target, source):
+    target.weight.data = clone(source.weight)
+    target.bias.data = clone(source.bias)
+
+
+def copy_linear(target, source):
+    target.weight.data = clone(source.weight)
+    if source.bias is not None and target.bias is not None:
+        target.bias.data = clone(source.bias)
+
+
 def transfer_weights_pt_to_pt_causal(pt_ref_block, pt_causal_block):
     """
     Helper to transfer weights from a reference PT SelfAttentionBlock to a
     PT CausalSelfAttentionBlock. This function is specific and not redundant.
     """
+    ref, causal = pt_ref_block, pt_causal_block
     with torch.no_grad():
-        pt_causal_block.attention_norm.weight.data = (
-            pt_ref_block.norm1.weight.detach().clone()
-        )
-        pt_causal_block.attention_norm.bias.data = (
-            pt_ref_block.norm1.bias.detach().clone()
-        )
-        pt_causal_block.ffn_norm.weight.data = (
-            pt_ref_block.norm2.weight.detach().clone()
-        )
-        pt_causal_block.ffn_norm.bias.data = pt_ref_block.norm2.bias.detach().clone()
-        pt_causal_block.attention.qkv.weight.data = (
-            pt_ref_block.attn.qkv.weight.detach().clone()
-        )
-        if (
-            pt_ref_block.attn.qkv.bias is not None
-            and pt_causal_block.attention.qkv.bias is not None
-        ):
-            pt_causal_block.attention.qkv.bias.data = (
-                pt_ref_block.attn.qkv.bias.detach().clone()
-            )
-        pt_causal_block.attention.proj.weight.data = (
-            pt_ref_block.attn.proj.weight.detach().clone()
-        )
-        if (
-            pt_ref_block.attn.proj.bias is not None
-            and pt_causal_block.attention.proj.bias is not None
-        ):
-            pt_causal_block.attention.proj.bias.data = (
-                pt_ref_block.attn.proj.bias.detach().clone()
-            )
-        pt_causal_block.feed_forward.fc1.weight.data = (
-            pt_ref_block.mlp.fc1.weight.detach().clone()
-        )
-        if (
-            pt_ref_block.mlp.fc1.bias is not None
-            and pt_causal_block.feed_forward.fc1.bias is not None
-        ):
-            pt_causal_block.feed_forward.fc1.bias.data = (
-                pt_ref_block.mlp.fc1.bias.detach().clone()
-            )
-        pt_causal_block.feed_forward.fc2.weight.data = (
-            pt_ref_block.mlp.fc2.weight.detach().clone()
-        )
-        if (
-            pt_ref_block.mlp.fc2.bias is not None
-            and pt_causal_block.feed_forward.fc2.bias is not None
-        ):
-            pt_causal_block.feed_forward.fc2.bias.data = (
-                pt_ref_block.mlp.fc2.bias.detach().clone()
-            )
-        if not isinstance(pt_ref_block.ls1, nn.Identity):
-            pt_causal_block.ls1.gamma.data = pt_ref_block.ls1.gamma.detach().clone()
-        if not isinstance(pt_ref_block.ls2, nn.Identity):
-            pt_causal_block.ls2.gamma.data = pt_ref_block.ls2.gamma.detach().clone()
+        copy_norm(causal.attention_norm, ref.norm1)
+        copy_norm(causal.ffn_norm, ref.norm2)
+        copy_linear(causal.attention.qkv, ref.attn.qkv)
+        copy_linear(causal.attention.proj, ref.attn.proj)
+        copy_linear(causal.feed_forward.fc1, ref.mlp.fc1)
+        copy_linear(causal.feed_forward.fc2, ref.mlp.fc2)
+        if not isinstance(ref.ls1, nn.Identity):
+            causal.ls1.gamma.data = clone(ref.ls1.gamma)
+        if not isinstance(ref.ls2, nn.Identity):
+            causal.ls2.gamma.data = clone(ref.ls2.gamma)
 
 
 def get_keras_layer(keras_block, keras_attr_str):
@@ -96,8 +68,8 @@ def get_keras_layer(keras_block, keras_attr_str):
 
 def transfer_weights_generic(keras_block, pt_block, layer_name_map):
     """
-    A generic function to transfer weights from a PyTorch block to a Keras block,
-    replacing the two previous redundant functions.
+    A generic function to transfer weights from a PyTorch block to a Keras
+    block, replacing the two previous redundant functions.
     """
     for keras_attr_str, pt_attr_str in layer_name_map.items():
         pt_layer = pt_block
@@ -126,47 +98,57 @@ def transfer_weights_generic(keras_block, pt_block, layer_name_map):
 
 DINO_WEIGHT_PATH = "/path/that/does/not/exist/dinov3_vits16_pretrain.pth"
 dinov3_files_exist = os.path.isfile(DINO_WEIGHT_PATH)
+SKIP_REASON = "DINOv3 model/weights not found."
+
+BLOCK_ARGNAMES = "dim, num_heads, mlp_ratio, qkv_bias, init_values"
+BLOCK_CASES = [
+    (64, 8, 4.0, True, None),
+    (128, 4, 2.0, False, None),
+    (96, 6, 4.0, True, 1e-4),
+    (32, 4, 3.0, False, 1e-4),
+]
+CAUSAL_ARGNAMES = "dim, num_heads, mlp_ratio, init_values, qkv_bias"
+CAUSAL_CASES = [(64, 8, 4.0, None, True), (128, 4, 2.0, 1e-5, False)]
+TRAINING_ARGNAMES = "block_class, dim, num_heads, drop_rate"
+TRAINING_CASES = [
+    (SelfAttentionBlock, 64, 8, 0.1),
+    (SelfAttentionBlock, 96, 6, 0.5),
+    (SelfAttentionBlock, 128, 4, 0.5),
+    (CausalSelfAttentionBlock, 64, 8, 0.1),
+    (CausalSelfAttentionBlock, 96, 6, 0.5),
+    (CausalSelfAttentionBlock, 128, 4, 0.5),
+]
+CAUSALITY_CASES = [
+    (64, 8, 32),
+    (128, 4, 16),
+]
+SERIALIZATION_CASES = [
+    (SelfAttentionBlock, 64, 8),
+    (CausalSelfAttentionBlock, 32, 4),
+]
+GRADIENT_CASES = [(32, 4, True), (32, 4, False)]
 
 
-@pytest.mark.parametrize(
-    "dim, num_heads, mlp_ratio, qkv_bias, init_values",
-    [
-        (64, 8, 4.0, True, None),
-        (128, 4, 2.0, False, None),
-        (96, 6, 4.0, True, 1e-4),
-        (32, 4, 3.0, False, 1e-4),
-    ],
-)
+@pytest.mark.parametrize(BLOCK_ARGNAMES, BLOCK_CASES)
 def test_self_attention_block_consistency(
     dim, num_heads, mlp_ratio, qkv_bias, init_values
 ):
     np.random.seed(42)
     torch.manual_seed(42)
-    pt_model = PT_SelfAttentionBlock(
-        dim=dim,
-        num_heads=num_heads,
-        ffn_ratio=mlp_ratio,
-        qkv_bias=qkv_bias,
-        proj_bias=True,
-        ffn_bias=True,
-        init_values=init_values,
-        norm_layer=partial(nn.LayerNorm, eps=1e-6),
-        attn_class=PT_SelfAttention,
-        ffn_layer=PT_Mlp,
-        act_layer=nn.GELU,
-    )
+    kwargs = dict(dim=dim, num_heads=num_heads, ffn_ratio=mlp_ratio)
+    kwargs.update(qkv_bias=qkv_bias, proj_bias=True, ffn_bias=True)
+    kwargs.update(init_values=init_values)
+    kwargs.update(norm_layer=partial(nn.LayerNorm, eps=1e-6))
+    kwargs.update(attn_class=PT_SelfAttention, ffn_layer=PT_Mlp)
+    pt_model = PT_SelfAttentionBlock(**kwargs, act_layer=nn.GELU)
     if init_values:
         pt_model.ls1.reset_parameters()
         pt_model.ls2.reset_parameters()
     pt_model.eval()
 
-    keras_model = SelfAttentionBlock(
-        dim=dim,
-        num_heads=num_heads,
-        mlp_ratio=mlp_ratio,
-        qkv_bias=qkv_bias,
-        init_values=init_values,
-    )
+    kwargs = dict(dim=dim, num_heads=num_heads, mlp_ratio=mlp_ratio)
+    kwargs.update(qkv_bias=qkv_bias, init_values=init_values)
+    keras_model = SelfAttentionBlock(**kwargs)
 
     np_input = np.random.rand(4, 16, dim).astype("float32")
     _ = keras_model(np_input)
@@ -192,35 +174,26 @@ def test_self_attention_block_consistency(
     print(f"Consistency test passed for SelfAttentionBlock with dim={dim}")
 
 
-@pytest.mark.parametrize(
-    "dim, num_heads, mlp_ratio, init_values, qkv_bias",
-    [(64, 8, 4.0, None, True), (128, 4, 2.0, 1e-5, False)],
-)
+@pytest.mark.parametrize(CAUSAL_ARGNAMES, CAUSAL_CASES)
 def test_causal_self_attention_block_consistency(
     dim, num_heads, mlp_ratio, init_values, qkv_bias
 ):
     np.random.seed(42)
     torch.manual_seed(42)
-    pt_model = PT_CausalSelfAttentionBlock(
-        dim=dim,
-        num_heads=num_heads,
-        ffn_ratio=mlp_ratio,
-        ls_init_value=init_values,
-        norm_layer=partial(nn.LayerNorm, eps=1e-6),
-    )
-    pt_model.attention = PT_CausalSelfAttention(dim, num_heads, qkv_bias=qkv_bias)
+    kwargs = dict(dim=dim, num_heads=num_heads, ffn_ratio=mlp_ratio)
+    kwargs.update(ls_init_value=init_values)
+    kwargs.update(norm_layer=partial(nn.LayerNorm, eps=1e-6))
+    pt_model = PT_CausalSelfAttentionBlock(**kwargs)
+    attention = PT_CausalSelfAttention(dim, num_heads, qkv_bias=qkv_bias)
+    pt_model.attention = attention
     if init_values:
         pt_model.ls1.reset_parameters()
         pt_model.ls2.reset_parameters()
     pt_model.eval()
 
-    keras_model = CausalSelfAttentionBlock(
-        dim=dim,
-        num_heads=num_heads,
-        mlp_ratio=mlp_ratio,
-        init_values=init_values,
-        qkv_bias=qkv_bias,
-    )
+    kwargs = dict(dim=dim, num_heads=num_heads, mlp_ratio=mlp_ratio)
+    kwargs.update(init_values=init_values, qkv_bias=qkv_bias)
+    keras_model = CausalSelfAttentionBlock(**kwargs)
 
     np_input = np.random.rand(4, 16, dim).astype("float32")
     _ = keras_model(np_input)
@@ -241,20 +214,11 @@ def test_causal_self_attention_block_consistency(
     keras_output = np.asarray(keras_model(np_input, training=False))
 
     np.testing.assert_allclose(pt_output, keras_output, atol=1e-5, rtol=1e-5)
-    print(f"Consistency test passed for CausalSelfAttentionBlock with dim={dim}")
+    message = "Consistency test passed for CausalSelfAttentionBlock with "
+    print(message + f"dim={dim}")
 
 
-@pytest.mark.parametrize(
-    "block_class, dim, num_heads, drop_rate",
-    [
-        (SelfAttentionBlock, 64, 8, 0.1),
-        (SelfAttentionBlock, 96, 6, 0.5),
-        (SelfAttentionBlock, 128, 4, 0.5),
-        (CausalSelfAttentionBlock, 64, 8, 0.1),
-        (CausalSelfAttentionBlock, 96, 6, 0.5),
-        (CausalSelfAttentionBlock, 128, 4, 0.5),
-    ],
-)
+@pytest.mark.parametrize(TRAINING_ARGNAMES, TRAINING_CASES)
 def test_block_training_mode(block_class, dim, num_heads, drop_rate):
     """A single, parametrized test for training mode behavior."""
     np.random.seed(123)
@@ -281,9 +245,10 @@ def test_block_training_mode(block_class, dim, num_heads, drop_rate):
     print(f"Training mode test passed for {block_class.__name__}")
 
 
-@pytest.mark.skipif(not dinov3_files_exist, reason="DINOv3 model/weights not found.")
+@pytest.mark.skipif(not dinov3_files_exist, reason=SKIP_REASON)
 def test_dinov3_block_pretrained_weights_match():
-    """Validates the Keras SelfAttentionBlock against pre-trained DINOv3 weights."""
+    """Validates the Keras SelfAttentionBlock against pre-trained DINOv3
+    weights."""
     from paz.models.foundation.dinov3.models.torch_vision_transformer_for_testing import (
         PT_vit_small,
     )
@@ -308,22 +273,16 @@ def test_dinov3_block_pretrained_weights_match():
     PRETRAINED_NUM_HEADS = torch_block.attn.num_heads
     QKV_BIAS = torch_block.attn.qkv.bias is not None
     MLP_RATIO = torch_block.mlp.fc1.out_features / PRETRAINED_DIM
-    INIT_VALUES = (
-        torch_block.ls1.init_values
-        if not isinstance(torch_block.ls1, nn.Identity)
-        else None
-    )
+    if not isinstance(torch_block.ls1, nn.Identity):
+        INIT_VALUES = torch_block.ls1.init_values
+    else:
+        INIT_VALUES = None
 
-    keras_block = SelfAttentionBlock(
-        dim=PRETRAINED_DIM,
-        num_heads=PRETRAINED_NUM_HEADS,
-        mlp_ratio=MLP_RATIO,
-        qkv_bias=QKV_BIAS,
-        init_values=INIT_VALUES,
-        drop=0.0,
-        attn_drop=0.0,
-        drop_path=0.0,
-    )
+    kwargs = dict(dim=PRETRAINED_DIM, num_heads=PRETRAINED_NUM_HEADS)
+    kwargs.update(mlp_ratio=MLP_RATIO, qkv_bias=QKV_BIAS)
+    kwargs.update(init_values=INIT_VALUES)
+    kwargs.update(drop=0.0, attn_drop=0.0, drop_path=0.0)
+    keras_block = SelfAttentionBlock(**kwargs)
 
     x_torch = torch.rand(2, 201, PRETRAINED_DIM)
     x_keras = x_torch.numpy()
@@ -347,16 +306,17 @@ def test_dinov3_block_pretrained_weights_match():
         keras_out = keras_out.to_numpy()
 
     mean_abs_diff = np.mean(np.abs(torch_out - keras_out))
-    print(f"\nPre-trained SelfAttentionBlock Mean Absolute Difference: {mean_abs_diff}")
+    message = "\nPre-trained SelfAttentionBlock Mean Absolute Difference: "
+    print(message + f"{mean_abs_diff}")
     np.testing.assert_allclose(torch_out, keras_out, atol=1e-3)
-    assert (
-        mean_abs_diff < 1e-5
-    ), f"Mean absolute difference {mean_abs_diff} exceeds tolerance."
+    message = f"Mean absolute difference {mean_abs_diff} exceeds tolerance."
+    assert mean_abs_diff < 1e-5, message
 
 
-@pytest.mark.skipif(not dinov3_files_exist, reason="DINOv3 model/weights not found.")
+@pytest.mark.skipif(not dinov3_files_exist, reason=SKIP_REASON)
 def test_dinov3_causal_block_pretrained_weights_match():
-    """Validates the Keras CausalSelfAttentionBlock against pre-trained DINOv3 weights."""
+    """Validates the Keras CausalSelfAttentionBlock against pre-trained
+    DINOv3 weights."""
     from paz.models.foundation.dinov3.models.torch_vision_transformer_for_testing import (
         PT_vit_small,
     )
@@ -381,20 +341,20 @@ def test_dinov3_causal_block_pretrained_weights_match():
     heads = ref_block.attn.num_heads
     qkv_bias = ref_block.attn.qkv.bias is not None
     mlp_ratio = ref_block.mlp.fc1.out_features / dim
-    init_values = (
-        ref_block.ls1.init_values if hasattr(ref_block.ls1, "init_values") else None
-    )
+    if hasattr(ref_block.ls1, "init_values"):
+        init_values = ref_block.ls1.init_values
+    else:
+        init_values = None
 
-    pt_causal_block = PT_CausalSelfAttentionBlock(
-        dim, heads, mlp_ratio, init_values, norm_layer=partial(nn.LayerNorm, eps=1e-6)
-    )
-    pt_causal_block.attention = PT_CausalSelfAttention(dim, heads, qkv_bias=qkv_bias)
+    args = (dim, heads, mlp_ratio, init_values)
+    norm_layer = partial(nn.LayerNorm, eps=1e-6)
+    pt_causal_block = PT_CausalSelfAttentionBlock(*args, norm_layer=norm_layer)
+    attention = PT_CausalSelfAttention(dim, heads, qkv_bias=qkv_bias)
+    pt_causal_block.attention = attention
     transfer_weights_pt_to_pt_causal(ref_block, pt_causal_block)
     pt_causal_block.eval()
 
-    keras_block = CausalSelfAttentionBlock(
-        dim, heads, mlp_ratio, init_values, qkv_bias=qkv_bias
-    )
+    keras_block = CausalSelfAttentionBlock(*args, qkv_bias=qkv_bias)
     np_input = np.random.rand(2, 201, dim).astype("float32")
     _ = keras_block(np_input)
 
@@ -414,20 +374,13 @@ def test_dinov3_causal_block_pretrained_weights_match():
     keras_output = np.asarray(keras_block(np_input, training=False))
     mean_abs_diff = np.mean(np.abs(pt_output - keras_output))
 
-    print(
-        f"\nPre-trained CausalSelfAttentionBlock Mean Absolute Difference: {mean_abs_diff}"
-    )
+    message = "\nPre-trained CausalSelfAttentionBlock Mean Absolute "
+    print(message + f"Difference: {mean_abs_diff}")
     np.testing.assert_allclose(pt_output, keras_output, atol=1e-4)
     assert mean_abs_diff < 1e-5
 
 
-@pytest.mark.parametrize(
-    "dim, num_heads, sequence_length",
-    [
-        (64, 8, 32),
-        (128, 4, 16),
-    ],
-)
+@pytest.mark.parametrize("dim, num_heads, sequence_length", CAUSALITY_CASES)
 def test_causality_functional(dim, num_heads, sequence_length):
     """
     Tests the CausalSelfAttentionBlock for causal masking.
@@ -453,29 +406,21 @@ def test_causality_functional(dim, num_heads, sequence_length):
         modified_output = modified_output.to_numpy()
 
     # 5. Assert that all outputs EXCEPT the last one are identical
-    np.testing.assert_allclose(
-        original_output[:, :-1, :],
-        modified_output[:, :-1, :],
-        atol=1e-6,
-        err_msg="Outputs before the last token should be identical, causality is broken.",
-    )
+    message = "Outputs before the last token should be identical, causality "
+    args = (original_output[:, :-1, :], modified_output[:, :-1, :])
+    kwargs = dict(atol=1e-6, err_msg=message + "is broken.")
+    np.testing.assert_allclose(*args, **kwargs)
 
     # 6. Assert that the last output token IS different
-    assert not np.allclose(
-        original_output[:, -1, :],
-        modified_output[:, -1, :],
-    ), "The last output token should have changed."
+    last_original = original_output[:, -1, :]
+    last_modified = modified_output[:, -1, :]
+    message = "The last output token should have changed."
+    assert not np.allclose(last_original, last_modified), message
 
     print(f"\nCausality test passed for dim={dim}, heads={num_heads}")
 
 
-@pytest.mark.parametrize(
-    "block_class, dim, num_heads",
-    [
-        (SelfAttentionBlock, 64, 8),
-        (CausalSelfAttentionBlock, 32, 4),
-    ],
-)
+@pytest.mark.parametrize("block_class, dim, num_heads", SERIALIZATION_CASES)
 def test_serialization(block_class, dim, num_heads, tmp_path):
     """
     Tests if the custom blocks can be saved and loaded correctly.
@@ -491,36 +436,27 @@ def test_serialization(block_class, dim, num_heads, tmp_path):
     # 3. Save and load the model
     model_path = tmp_path / "model.keras"
     model.save(model_path)
-    loaded_model = keras.models.load_model(
-        model_path, custom_objects={block_class.__name__: block_class}
-    )
+    custom_objects = {block_class.__name__: block_class}
+    load_model = keras.models.load_model
+    loaded_model = load_model(model_path, custom_objects=custom_objects)
 
     # 4. Get the output of the loaded model
     loaded_output = loaded_model(np_input)
 
     # 5. Assert that outputs are identical
-    np.testing.assert_allclose(
-        original_output,
-        loaded_output,
-        atol=1e-6,
-        err_msg="Output of loaded model does not match original.",
-    )
+    message = "Output of loaded model does not match original."
+    args = (original_output, loaded_output)
+    np.testing.assert_allclose(*args, atol=1e-6, err_msg=message)
 
     # 6. Assert that weights are identical
+    message = "Weights of loaded model do not match original."
     for w1, w2 in zip(model.weights, loaded_model.weights):
-        np.testing.assert_allclose(
-            w1.numpy(),
-            w2.numpy(),
-            err_msg="Weights of loaded model do not match original.",
-        )
+        np.testing.assert_allclose(w1.numpy(), w2.numpy(), err_msg=message)
 
     print(f"\nSerialization test passed for {block_class.__name__}")
 
 
-@pytest.mark.parametrize(
-    "dim, num_heads, qkv_bias",
-    [(32, 4, True), (32, 4, False)],
-)
+@pytest.mark.parametrize("dim, num_heads, qkv_bias", GRADIENT_CASES)
 def test_gradients_consistency(dim, num_heads, qkv_bias):
     """
     Verifies that the backward pass (gradients) is consistent
@@ -530,18 +466,16 @@ def test_gradients_consistency(dim, num_heads, qkv_bias):
     torch.manual_seed(123)
 
     # --- PyTorch Setup ---
-    pt_model = PT_CausalSelfAttentionBlock(
-        dim=dim,
-        num_heads=num_heads,
-        norm_layer=partial(nn.LayerNorm, eps=1e-6),
-    )
-    pt_model.attention = PT_CausalSelfAttention(dim, num_heads, qkv_bias=qkv_bias)
+    norm_layer = partial(nn.LayerNorm, eps=1e-6)
+    kwargs = dict(dim=dim, num_heads=num_heads, norm_layer=norm_layer)
+    pt_model = PT_CausalSelfAttentionBlock(**kwargs)
+    attention = PT_CausalSelfAttention(dim, num_heads, qkv_bias=qkv_bias)
+    pt_model.attention = attention
     pt_model.eval()
 
     # --- Keras Setup ---
-    keras_model = CausalSelfAttentionBlock(
-        dim=dim, num_heads=num_heads, qkv_bias=qkv_bias
-    )
+    kwargs = dict(dim=dim, num_heads=num_heads, qkv_bias=qkv_bias)
+    keras_model = CausalSelfAttentionBlock(**kwargs)
     np_input = np.random.rand(2, 16, dim).astype("float32")
     _ = keras_model(np_input)  # Build layer
 
@@ -595,20 +529,13 @@ def test_gradients_consistency(dim, num_heads, qkv_bias):
 
     # --- Comparison ---
     print("\nComparing gradients...")
-    np.testing.assert_allclose(
-        pt_grad_input,
-        np.array(keras_grad_input),
-        atol=1e-5,
-        rtol=1e-5,
-        err_msg="Input gradients do not match.",
-    )
-    np.testing.assert_allclose(
-        pt_grad_qkv_w.T,
-        np.array(keras_grad_qkv_w),
-        atol=1e-5,
-        rtol=1e-5,
-        err_msg="QKV weight gradients do not match.",
-    )
-    print(
-        f"Gradient consistency test passed for dim={dim}, heads={num_heads}, bias={qkv_bias}"
-    )
+    message = "Input gradients do not match."
+    tolerances = dict(atol=1e-5, rtol=1e-5, err_msg=message)
+    args = (pt_grad_input, np.array(keras_grad_input))
+    np.testing.assert_allclose(*args, **tolerances)
+    message = "QKV weight gradients do not match."
+    tolerances = dict(atol=1e-5, rtol=1e-5, err_msg=message)
+    args = (pt_grad_qkv_w.T, np.array(keras_grad_qkv_w))
+    np.testing.assert_allclose(*args, **tolerances)
+    message = "Gradient consistency test passed for "
+    print(message + f"dim={dim}, heads={num_heads}, bias={qkv_bias}")
