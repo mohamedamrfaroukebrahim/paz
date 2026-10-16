@@ -171,6 +171,37 @@ def build_probe(keras_model):
     return keras.Model(keras_model.inputs, outputs)
 
 
+def has_layer(model, name):
+    return name in [layer.name for layer in model.layers]
+
+
+def count_stage_blocks(keras_model, stage):
+    names = [layer.name for layer in keras_model.layers]
+    prefix = f"stages_{stage}_"
+    is_block = [name.startswith(prefix) for name in names if "dwconv" in name]
+    return sum(is_block)
+
+
+def get_convnext_block(keras_model, stage, index):
+    def get_block_layer(part):
+        return keras_model.get_layer(f"stages_{stage}_{index}_{part}")
+    return get_block_layer
+
+
+def apply_downsample(keras_model, index, x):
+    for part in (0, 1):
+        layer = keras_model.get_layer(f"downsample_layers_{index}_{part}")
+        x = layer(x, training=False)
+    return x
+
+
+def apply_drop_path(keras_model, stage, index, x):
+    name = f"stages_{stage}_{index}_drop_path"
+    if has_layer(keras_model, name):
+        x = keras_model.get_layer(name)(x, training=False)
+    return x
+
+
 @pytest.mark.parametrize(
     "pt_constructor, keras_constructor, weight_key, model_kwargs", VIT_MODEL_CONFIGS
 )
@@ -248,7 +279,7 @@ def test_final_CONVNEXT_output_equivalence(
 
     # --- Get Model Outputs ---
     print("Performing inference...")
-    keras_output = keras_model(keras_input, training=False)
+    keras_output, _ = keras_model(keras_input, training=False)
     with torch.no_grad():
         pt_output = pt_model(pt_input, is_training=False)
 
@@ -435,10 +466,9 @@ def test_deep_dive_convnext_block_equivalence(
         print(f"\n--- Analyzing Stage {i} ({weight_key}) ---")
 
         # --- 1. Downsample Layer ---
-        keras_down_layer = keras_model.downsample_layers[i]
         pt_down_layer = pt_model.downsample_layers[i]
 
-        x_keras = keras_down_layer(x_keras, training=False)
+        x_keras = apply_downsample(keras_model, i, x_keras)
         x_torch = pt_down_layer(x_torch)
 
         x_keras = _compare_and_correct(
@@ -446,8 +476,8 @@ def test_deep_dive_convnext_block_equivalence(
         )
 
         # --- 2. Blocks in Stage ---
-        for j in range(len(keras_model.stages[i].layers)):
-            keras_block = keras_model.stages[i].layers[j]
+        for j in range(count_stage_blocks(keras_model, i)):
+            keras_block = get_convnext_block(keras_model, i, j)
             pt_block = pt_model.stages[i][j]
 
             input_keras = x_keras
@@ -456,7 +486,7 @@ def test_deep_dive_convnext_block_equivalence(
             block_prefix = f"Stage {i} Block {j}"
 
             # 1. DwConv
-            k_dwconv = keras_block.dwconv(input_keras)
+            k_dwconv = keras_block("dwconv")(input_keras)
             pt_dwconv = pt_block.dwconv(input_torch)
             k_dwconv = _compare_and_correct(k_dwconv, pt_dwconv, "dwconv", block_prefix)
 
@@ -465,28 +495,28 @@ def test_deep_dive_convnext_block_equivalence(
             pt_perm1 = pt_dwconv.permute(0, 2, 3, 1)
 
             # 3. Norm
-            k_norm = keras_block.norm(k_perm1)
+            k_norm = keras_block("norm")(k_perm1)
             pt_norm = pt_block.norm(pt_perm1)
             k_norm = _compare_and_correct(k_norm, pt_norm, "norm", block_prefix)
 
             # 4. PwConv1
-            k_pw1 = keras_block.pwconv1(k_norm)
+            k_pw1 = keras_block("pwconv1")(k_norm)
             pt_pw1 = pt_block.pwconv1(pt_norm)
             k_pw1 = _compare_and_correct(k_pw1, pt_pw1, "pwconv1", block_prefix)
 
             # 5. Act
-            k_act = keras_block.act(k_pw1)
+            k_act = keras_block("act")(k_pw1)
             pt_act = pt_block.act(pt_pw1)
             k_act = _compare_and_correct(k_act, pt_act, "act", block_prefix)
 
             # 6. PwConv2
-            k_pw2 = keras_block.pwconv2(k_act)
+            k_pw2 = keras_block("pwconv2")(k_act)
             pt_pw2 = pt_block.pwconv2(pt_act)
             k_pw2 = _compare_and_correct(k_pw2, pt_pw2, "pwconv2", block_prefix)
 
             # 7. Gamma (LayerScale)
-            if keras_block.gamma is not None:
-                k_pw2_scaled = keras_block.gamma * k_pw2
+            if has_layer(keras_model, f"stages_{i}_{j}_gamma"):
+                k_pw2_scaled = keras_block("gamma")(k_pw2)
                 pt_pw2_scaled = pt_block.gamma * pt_pw2
                 k_pw2_scaled = _compare_and_correct(
                     k_pw2_scaled, pt_pw2_scaled, "gamma", block_prefix
@@ -500,7 +530,7 @@ def test_deep_dive_convnext_block_equivalence(
             pt_perm2 = pt_pw2_scaled.permute(0, 3, 1, 2)
 
             # 9. DropPath (is Identity in eval mode)
-            k_drop = keras_block.drop_path(k_perm2, training=False)
+            k_drop = apply_drop_path(keras_model, i, j, k_perm2)
             pt_drop = pt_block.drop_path(pt_perm2)
             k_drop = _compare_and_correct(k_drop, pt_drop, "drop_path", block_prefix)
 

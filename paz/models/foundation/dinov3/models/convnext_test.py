@@ -126,76 +126,75 @@ def assert_all_close(test_name, pt_out, keras_out, tolerance=TOLERANCE):
         raise e
 
 
+def has_layer(model, name):
+    return name in [layer.name for layer in model.layers]
+
+
+def count_stage_blocks(keras_model, stage):
+    names = [layer.name for layer in keras_model.layers]
+    prefix = f"stages_{stage}_"
+    is_block = [name.startswith(prefix) for name in names if "dwconv" in name]
+    return sum(is_block)
+
+
+def get_block(keras_model, stage, index):
+    def get_block_layer(part):
+        return keras_model.get_layer(f"stages_{stage}_{index}_{part}")
+    return get_block_layer
+
+
+def apply_downsample(keras_model, index, x):
+    for part in (0, 1):
+        layer = keras_model.get_layer(f"downsample_layers_{index}_{part}")
+        x = layer(x, training=False)
+    return x
+
+
+def apply_drop_path(keras_model, stage, index, x):
+    name = f"stages_{stage}_{index}_drop_path"
+    if has_layer(keras_model, name):
+        x = keras_model.get_layer(name)(x, training=False)
+    return x
+
+
+def set_pt_weights(keras_model, pt_sd, key, axes):
+    kernel = pt_sd[f"{key}.weight"]
+    kernel = kernel if axes is None else kernel.permute(*axes)
+    bias = pt_sd[f"{key}.bias"].numpy()
+    layer = keras_model.get_layer(key.replace(".", "_"))
+    layer.set_weights([kernel.numpy(), bias])
+
+
 def transfer_weights_convnext(pt_model, keras_model):
     print("Starting by-name weight transfer...")
     pt_sd = pt_model.state_dict()
 
     try:
-        keras_model.downsample_layers[0].layers[0].set_weights(
-            [
-                pt_sd["downsample_layers.0.0.weight"].permute(2, 3, 1, 0).numpy(),
-                pt_sd["downsample_layers.0.0.bias"].numpy(),
-            ]
-        )
-        keras_model.downsample_layers[0].layers[1].set_weights(
-            [
-                pt_sd["downsample_layers.0.1.weight"].numpy(),
-                pt_sd["downsample_layers.0.1.bias"].numpy(),
-            ]
-        )
+        args = (keras_model, pt_sd)
+        set_pt_weights(*args, "downsample_layers.0.0", (2, 3, 1, 0))
+        set_pt_weights(*args, "downsample_layers.0.1", None)
 
         # 3 Downsampling layers (downsample_layers[1, 2, 3])
         for i in range(1, 4):
-            keras_model.downsample_layers[i].layers[0].set_weights(
-                [
-                    pt_sd[f"downsample_layers.{i}.0.weight"].numpy(),
-                    pt_sd[f"downsample_layers.{i}.0.bias"].numpy(),
-                ]
-            )
-            keras_model.downsample_layers[i].layers[1].set_weights(
-                [
-                    pt_sd[f"downsample_layers.{i}.1.weight"]
-                    .permute(2, 3, 1, 0)
-                    .numpy(),
-                    pt_sd[f"downsample_layers.{i}.1.bias"].numpy(),
-                ]
-            )
+            prefix = f"downsample_layers.{i}"
+            set_pt_weights(*args, f"{prefix}.0", None)
+            set_pt_weights(*args, f"{prefix}.1", (2, 3, 1, 0))
 
         # 4 Stages
         for i in range(4):
-            for j in range(len(keras_model.stages[i].layers)):
-                block = keras_model.stages[i].layers[j]
+            for j in range(count_stage_blocks(keras_model, i)):
                 pt_prefix = f"stages.{i}.{j}"
-                block.dwconv.set_weights(
-                    [
-                        pt_sd[f"{pt_prefix}.dwconv.weight"].permute(2, 3, 0, 1).numpy(),
-                        pt_sd[f"{pt_prefix}.dwconv.bias"].numpy(),
-                    ]
-                )
-                block.norm.set_weights(
-                    [
-                        pt_sd[f"{pt_prefix}.norm.weight"].numpy(),
-                        pt_sd[f"{pt_prefix}.norm.bias"].numpy(),
-                    ]
-                )
-                block.pwconv1.set_weights(
-                    [
-                        pt_sd[f"{pt_prefix}.pwconv1.weight"].T.numpy(),
-                        pt_sd[f"{pt_prefix}.pwconv1.bias"].numpy(),
-                    ]
-                )
-                block.pwconv2.set_weights(
-                    [
-                        pt_sd[f"{pt_prefix}.pwconv2.weight"].T.numpy(),
-                        pt_sd[f"{pt_prefix}.pwconv2.bias"].numpy(),
-                    ]
-                )
-                if block.gamma is not None:
-                    block.gamma.assign(pt_sd[f"{pt_prefix}.gamma"].numpy())
+                set_pt_weights(*args, f"{pt_prefix}.dwconv", (2, 3, 0, 1))
+                set_pt_weights(*args, f"{pt_prefix}.norm", None)
+                set_pt_weights(*args, f"{pt_prefix}.pwconv1", (1, 0))
+                set_pt_weights(*args, f"{pt_prefix}.pwconv2", (1, 0))
+                if has_layer(keras_model, f"stages_{i}_{j}_gamma"):
+                    gamma = pt_sd[f"{pt_prefix}.gamma"].numpy()
+                    get_block(keras_model, i, j)("gamma").set_weights([gamma])
 
-        keras_model.norm.set_weights(
-            [pt_sd["norm.weight"].numpy(), pt_sd["norm.bias"].numpy()]
-        )
+        norm_weights = [pt_sd["norm.weight"].numpy()]
+        norm_weights.append(pt_sd["norm.bias"].numpy())
+        keras_model.get_layer("norm").set_weights(norm_weights)
 
         print("By-name weight transfer complete.")
 
@@ -284,9 +283,8 @@ def test_final_output_equivalence(setup_models):
     pt_out_call = setup_models["pt_model"](
         setup_models["torch_input"], is_training=False
     )
-    keras_out_call = setup_models["keras_model"](
-        setup_models["keras_input"], training=False
-    )
+    keras_input = setup_models["keras_input"]
+    keras_out_call, _ = setup_models["keras_model"](keras_input, training=False)
 
     assert_all_close(
         f"Final 'call' (inference) - {arch_name}",
@@ -329,10 +327,9 @@ def test_deep_dive_block_equivalence(setup_models):
         print(f"\n--- Analyzing Stage {i} ({arch_name}) ---")
 
         # --- 1. Downsample Layer ---
-        keras_down_layer = keras_model.downsample_layers[i]
         pt_down_layer = pt_model.downsample_layers[i]
 
-        x_keras = keras_down_layer(x_keras)
+        x_keras = apply_downsample(keras_model, i, x_keras)
         x_torch = pt_down_layer(x_torch)
 
         x_keras = _compare_and_correct(
@@ -340,8 +337,8 @@ def test_deep_dive_block_equivalence(setup_models):
         )
 
         # --- 2. Blocks in Stage ---
-        for j in range(len(keras_model.stages[i].layers)):
-            keras_block = keras_model.stages[i].layers[j]
+        for j in range(count_stage_blocks(keras_model, i)):
+            keras_block = get_block(keras_model, i, j)
             pt_block = pt_model.stages[i][j]
 
             input_keras = x_keras
@@ -350,7 +347,7 @@ def test_deep_dive_block_equivalence(setup_models):
             layer_prefix = f"Stage {i} Block {j}"
 
             # 1. DwConv
-            k_dwconv = keras_block.dwconv(input_keras)
+            k_dwconv = keras_block("dwconv")(input_keras)
             pt_dwconv = pt_block.dwconv(input_torch)
             k_dwconv = _compare_and_correct(
                 k_dwconv, pt_dwconv, f"{layer_prefix} - dwconv"
@@ -361,28 +358,28 @@ def test_deep_dive_block_equivalence(setup_models):
             pt_perm1 = pt_dwconv.permute(0, 2, 3, 1)
 
             # 3. Norm
-            k_norm = keras_block.norm(k_perm1)
+            k_norm = keras_block("norm")(k_perm1)
             pt_norm = pt_block.norm(pt_perm1)
             k_norm = _compare_and_correct(k_norm, pt_norm, f"{layer_prefix} - norm")
 
             # 4. PwConv1
-            k_pw1 = keras_block.pwconv1(k_norm)
+            k_pw1 = keras_block("pwconv1")(k_norm)
             pt_pw1 = pt_block.pwconv1(pt_norm)
             k_pw1 = _compare_and_correct(k_pw1, pt_pw1, f"{layer_prefix} - pwconv1")
 
             # 5. Act
-            k_act = keras_block.act(k_pw1)
+            k_act = keras_block("act")(k_pw1)
             pt_act = pt_block.act(pt_pw1)
             k_act = _compare_and_correct(k_act, pt_act, f"{layer_prefix} - act")
 
             # 6. PwConv2
-            k_pw2 = keras_block.pwconv2(k_act)
+            k_pw2 = keras_block("pwconv2")(k_act)
             pt_pw2 = pt_block.pwconv2(pt_act)
             k_pw2 = _compare_and_correct(k_pw2, pt_pw2, f"{layer_prefix} - pwconv2")
 
             # 7. Gamma (LayerScale)
-            if keras_block.gamma is not None:
-                k_pw2 = keras_block.gamma * k_pw2
+            if has_layer(keras_model, f"stages_{i}_{j}_gamma"):
+                k_pw2 = keras_block("gamma")(k_pw2)
                 pt_pw2 = pt_block.gamma * pt_pw2
                 k_pw2 = _compare_and_correct(k_pw2, pt_pw2, f"{layer_prefix} - gamma")
 
@@ -391,7 +388,7 @@ def test_deep_dive_block_equivalence(setup_models):
             pt_perm2 = pt_pw2.permute(0, 3, 1, 2)
 
             # 9. DropPath (is Identity in eval mode)
-            k_drop = keras_block.drop_path(k_perm2, training=False)
+            k_drop = apply_drop_path(keras_model, i, j, k_perm2)
             pt_drop = pt_block.drop_path(pt_perm2)  # training=False by pt_model.eval()
             k_drop = _compare_and_correct(
                 k_drop, pt_drop, f"{layer_prefix} - drop_path"

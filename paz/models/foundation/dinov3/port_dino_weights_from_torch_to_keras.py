@@ -162,97 +162,70 @@ def port_final_norms(pt_state_dict, keras_model):
         logging.info("✓ Ported final 'cls_norm' layer.")
 
 
+CONV_AXES = (2, 3, 1, 0)
+DEPTHWISE_AXES = (2, 3, 0, 1)
+DENSE_AXES = (1, 0)
+
+
 def transfer_weights_convnext(pt_state_dict, keras_model):
-    """
-    Loads weights from a PyTorch DINOv3 ConvNeXt state_dict into a
-    native Keras DINOv3 ConvNeXt model.
+    """Loads a PyTorch DINOv3 ConvNeXt state_dict into a Keras ConvNeXt.
+
+    Keras layer names are the PyTorch keys with dots as underscores, and
+    every target layer is resolved by name with ``get_layer``. Blocks are
+    probed by name, so only the blocks the Keras model holds are ported.
 
     Args:
         pt_state_dict: The state_dict from the pretrained PyTorch model.
-        keras_model: An instance of a Keras ConvNeXt model.
+        keras_model: A ``keras.Model`` built by ``ConvNeXt``.
     """
-    print("Starting by-name weight transfer for ConvNeXt...")
-    pt_sd = pt_state_dict  # Use the state_dict directly
+    logging.info(f"Starting weight porting for '{keras_model.name}'...")
+    port_downsampling(pt_state_dict, keras_model)
+    num_blocks = 0
+    for stage in range(4):
+        index = 0
+        while has_layer(keras_model, f"stages_{stage}_{index}_dwconv"):
+            prefix = f"stages.{stage}.{index}"
+            port_convnext_block(pt_state_dict, keras_model, prefix)
+            index = index + 1
+        num_blocks = num_blocks + index
+    logging.info(f"✓ Ported {num_blocks} ConvNeXt blocks.")
+    set_norm(keras_model.get_layer("norm"), pt_state_dict, "norm")
+    logging.info("✓ Ported final 'norm' layer.")
+    return keras_model
 
-    try:
-        keras_model.downsample_layers[0].layers[0].set_weights(
-            [
-                pt_sd["downsample_layers.0.0.weight"].permute(2, 3, 1, 0).numpy(),
-                pt_sd["downsample_layers.0.0.bias"].numpy(),
-            ]
-        )
-        keras_model.downsample_layers[0].layers[1].set_weights(
-            [
-                pt_sd["downsample_layers.0.1.weight"].numpy(),
-                pt_sd["downsample_layers.0.1.bias"].numpy(),
-            ]
-        )
 
-        # 3 Downsampling layers (downsample_layers[1, 2, 3])
-        for i in range(1, 4):
-            keras_model.downsample_layers[i].layers[0].set_weights(
-                [
-                    pt_sd[f"downsample_layers.{i}.0.weight"].numpy(),
-                    pt_sd[f"downsample_layers.{i}.0.bias"].numpy(),
-                ]
-            )
-            keras_model.downsample_layers[i].layers[1].set_weights(
-                [
-                    pt_sd[f"downsample_layers.{i}.1.weight"]
-                    .permute(2, 3, 1, 0)
-                    .numpy(),
-                    pt_sd[f"downsample_layers.{i}.1.bias"].numpy(),
-                ]
-            )
+def port_downsampling(pt_state_dict, keras_model):
+    port_kernel(pt_state_dict, keras_model, "downsample_layers.0.0", CONV_AXES)
+    port_kernel(pt_state_dict, keras_model, "downsample_layers.0.1", None)
+    for index in range(1, 4):
+        prefix = f"downsample_layers.{index}"
+        port_kernel(pt_state_dict, keras_model, f"{prefix}.0", None)
+        port_kernel(pt_state_dict, keras_model, f"{prefix}.1", CONV_AXES)
+    logging.info("✓ Ported downsample_layers weights.")
 
-        # 4 Stages
-        for i in range(4):
-            for j in range(len(keras_model.stages[i].layers)):
-                block = keras_model.stages[i].layers[j]
-                pt_prefix = f"stages.{i}.{j}"
-                block.dwconv.set_weights(
-                    [
-                        pt_sd[f"{pt_prefix}.dwconv.weight"].permute(2, 3, 0, 1).numpy(),
-                        pt_sd[f"{pt_prefix}.dwconv.bias"].numpy(),
-                    ]
-                )
-                block.norm.set_weights(
-                    [
-                        pt_sd[f"{pt_prefix}.norm.weight"].numpy(),
-                        pt_sd[f"{pt_prefix}.norm.bias"].numpy(),
-                    ]
-                )
-                block.pwconv1.set_weights(
-                    [
-                        pt_sd[f"{pt_prefix}.pwconv1.weight"].T.numpy(),
-                        pt_sd[f"{pt_prefix}.pwconv1.bias"].numpy(),
-                    ]
-                )
-                block.pwconv2.set_weights(
-                    [
-                        pt_sd[f"{pt_prefix}.pwconv2.weight"].T.numpy(),
-                        pt_sd[f"{pt_prefix}.pwconv2.bias"].numpy(),
-                    ]
-                )
-                if block.gamma is not None:
-                    block.gamma.assign(pt_sd[f"{pt_prefix}.gamma"].numpy())
 
-        keras_model.norm.set_weights(
-            [pt_sd["norm.weight"].numpy(), pt_sd["norm.bias"].numpy()]
-        )
+def port_convnext_block(pt_state_dict, keras_model, prefix):
+    args = (pt_state_dict, keras_model)
+    port_kernel(*args, f"{prefix}.dwconv", DEPTHWISE_AXES)
+    port_kernel(*args, f"{prefix}.norm", None)
+    port_kernel(*args, f"{prefix}.pwconv1", DENSE_AXES)
+    port_kernel(*args, f"{prefix}.pwconv2", DENSE_AXES)
+    gamma_name = to_layer_name(f"{prefix}.gamma")
+    if has_layer(keras_model, gamma_name):
+        gamma = to_numpy(pt_state_dict[f"{prefix}.gamma"])
+        keras_model.get_layer(gamma_name).set_weights([gamma])
 
-        print("By-name weight transfer complete.")
-        return keras_model  # Return the model
 
-    except KeyError as e:
-        print(f"❌ [FAIL] Weight transfer failed. Missing key: {e}")
-        print(
-            "This often means the Keras and PyTorch model structures are out of sync."
-        )
-        raise e
-    except Exception as e:
-        print(f"❌ [FAIL] Weight transfer failed with an unexpected error: {e}")
-        raise e
+def port_kernel(pt_state_dict, keras_model, key, axes):
+    kernel = pt_state_dict[f"{key}.weight"]
+    kernel = kernel if axes is None else kernel.permute(*axes)
+    bias = to_numpy(pt_state_dict[f"{key}.bias"])
+    layer = keras_model.get_layer(to_layer_name(key))
+    layer.set_weights([to_numpy(kernel), bias])
+
+
+def to_layer_name(key):
+    return key.replace(".", "_")
 
 
 # ==============================================================================
