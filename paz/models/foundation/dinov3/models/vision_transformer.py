@@ -1,6 +1,6 @@
 import os
 
-from keras import Input, Model, ops
+from keras import Input, Model, initializers, ops
 from keras.layers import Concatenate
 
 from paz.models.foundation.dinov3.layers.block import build_norm
@@ -67,6 +67,7 @@ def DinoVisionTransformer(*, img_size=224, patch_size=16, in_chans=3,
     outputs = normalize_tokens(tokens, *args)
     model = Model(images, outputs, name=name)
     assign_rope_periods(model, head_dim, *rope_args)
+    initialize_mask_token(model)
     return model
 
 
@@ -98,6 +99,13 @@ def assign_rope_periods(model, head_dim, base, min_period, max_period):
     periods = compute_periods(head_dim, base, min_period, max_period)
     periods = ops.convert_to_numpy(periods)
     model.get_layer("rope_embed").set_weights([periods])
+
+
+def initialize_mask_token(model):
+    # LearnableTokens starts at zeros; the mask token starts random_normal
+    mask_token = model.get_layer("mask_token").weights[0]
+    shape = tuple(mask_token.shape)
+    mask_token.assign(initializers.RandomNormal()(shape))
 
 
 def load_pretrained_weights(model, model_name):

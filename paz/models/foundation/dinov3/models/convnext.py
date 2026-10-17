@@ -1,9 +1,10 @@
 from functools import partial
 
 import numpy as np
-from keras import Input, Model
+from keras import Input, Model, ops
 from keras.layers import Activation, Add, Concatenate, Conv2D, Dense
-from keras.layers import DepthwiseConv2D, Dropout, GlobalAveragePooling2D
+from keras.layers import DepthwiseConv2D, Dropout, EinsumDense
+from keras.layers import GlobalAveragePooling2D
 from keras.layers import LayerNormalization, Permute, Reshape
 
 from paz.models.foundation.dinov3.layers.layer_scale import LayerScale
@@ -34,15 +35,38 @@ def ConvNeXt(in_chans=3, depths=(3, 3, 9, 3), dims=(96, 192, 384, 768),
     return Model(images, outputs, name=name)
 
 
+def LayerNorm(dim, data_format="channels_last", epsilon=1e-6, name=None):
+    """ConvNeXt layer norm as a model, weights ``[kernel, bias]`` of (dim,).
+
+    Computes ``(x - mean) / sqrt(variance + epsilon)`` then the affine, the
+    arithmetic of the PyTorch and pre-refactor norms, so outputs match them
+    exactly; ``LayerNormalization`` rounds differently.
+    """
+    channels_first = data_format == "channels_first"
+    axis = 1 if channels_first else -1
+    shape = (dim, None, None) if channels_first else (None, None, dim)
+    inputs = Input(shape, name=f"{name}_inputs")
+    mean = ops.mean(inputs, axis=axis, keepdims=True)
+    variance = ops.mean(ops.square(inputs - mean), axis=axis, keepdims=True)
+    x = (inputs - mean) / ops.sqrt(variance + epsilon)
+    if channels_first:
+        x = Permute((2, 3, 1), name=f"{name}_to_channels_last")(x)
+    kwargs = dict(output_shape=(dim,), bias_axes="d", name=f"{name}_affine")
+    kwargs["kernel_initializer"] = "ones"
+    x = EinsumDense("...d,d->...d", **kwargs)(x)
+    if channels_first:
+        x = Permute((3, 1, 2), name=f"{name}_to_channels_first")(x)
+    return Model(inputs, x, name=name)
+
+
 def apply_stem(x, dim):
     kwargs = dict(strides=4, data_format="channels_first")
     x = Conv2D(dim, 4, **kwargs, name="downsample_layers_0_0")(x)
-    kwargs = dict(axis=1, epsilon=1e-6, name="downsample_layers_0_1")
-    return LayerNormalization(**kwargs)(x)
+    return LayerNorm(dim, "channels_first", name="downsample_layers_0_1")(x)
 
 
 def apply_downsample(x, dim, name):
-    x = LayerNormalization(axis=1, epsilon=1e-6, name=f"{name}_0")(x)
+    x = LayerNorm(x.shape[1], "channels_first", name=f"{name}_0")(x)
     kwargs = dict(strides=2, data_format="channels_first")
     return Conv2D(dim, 2, **kwargs, name=f"{name}_1")(x)
 
@@ -53,7 +77,7 @@ def apply_block(x, dim, drop_path, layer_scale_init_value, name):
     kwargs = dict(padding="same", data_format="channels_first")
     x = DepthwiseConv2D(7, **kwargs, name=f"{name}_dwconv")(x)
     x = Permute((2, 3, 1), name=f"{name}_to_channels_last")(x)
-    x = LayerNormalization(epsilon=1e-6, name=f"{name}_norm")(x)
+    x = LayerNorm(dim, name=f"{name}_norm")(x)
     x = Dense(4 * dim, name=f"{name}_pwconv1")(x)
     x = Activation("gelu", name=f"{name}_act")(x)
     x = Dense(dim, name=f"{name}_pwconv2")(x)
